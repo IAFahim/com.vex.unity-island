@@ -1,0 +1,13 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="Island.uss" />
+    <ui:VisualElement name="root" class="root">
+        <ui:VisualElement name="pill" class="pill">
+            <ui:VisualElement name="left" class="left">
+                <ui:VisualElement name="dot" class="dot" />
+                <ui:Label name="status" text="boot" class="meta" />
+            </ui:VisualElement>
+            <ui:Label name="clock" text="--:--:--" class="clock" />
+            <ui:Label name="brand" text="Island" class="meta brand" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

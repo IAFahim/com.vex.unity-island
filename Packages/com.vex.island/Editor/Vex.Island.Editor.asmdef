@@ -1,0 +1,11 @@
+{
+  "name": "Vex.Island.Editor",
+  "rootNamespace": "Vex.Island.Editor",
+  "references": ["Vex.Island", "Vex.Island.Unity"],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

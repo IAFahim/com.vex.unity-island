@@ -1,0 +1,7 @@
+{
+  "name": "nuget-packages",
+  "version": "1.0.0",
+  "displayName": "NuGetPackages",
+  "description": "Restored NuGet assemblies for Island. packages.config is the lock; InstalledPackages is gitignored.",
+  "dependencies": {}
+}

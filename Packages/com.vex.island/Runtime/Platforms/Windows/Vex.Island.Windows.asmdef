@@ -1,0 +1,11 @@
+{
+  "name": "Vex.Island.Windows",
+  "rootNamespace": "Vex.Island",
+  "references": ["Vex.Island"],
+  "includePlatforms": ["Editor", "WindowsStandalone64"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

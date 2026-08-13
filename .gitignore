@@ -61,3 +61,7 @@ InitTestScene*.unity*
 
 # Keep native plugin sources + the Linux .so we ship.
 # Do not commit Editor-generated project files or the player folder.
+
+# NuGetForUnity: packages.config is the lock. Restored DLLs are local.
+/Packages/nuget-packages/InstalledPackages/*
+!/Packages/nuget-packages/InstalledPackages/.gitkeep

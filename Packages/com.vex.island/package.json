@@ -1,0 +1,8 @@
+{
+  "name": "com.vex.island",
+  "version": "0.4.0",
+  "displayName": "Island",
+  "description": "Context-aware edge island. Core is engine-free. Linux/Windows/macOS chrome register via IIslandChrome. Offers classify files and expose Process.",
+  "unity": "6000.0",
+  "author": { "name": "Vex" }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "Vex.Island.OSX",
+  "rootNamespace": "Vex.Island",
+  "references": ["Vex.Island"],
+  "includePlatforms": ["Editor", "macOSStandalone"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

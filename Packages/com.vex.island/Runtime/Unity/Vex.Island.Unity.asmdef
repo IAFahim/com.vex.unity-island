@@ -1,0 +1,11 @@
+{
+  "name": "Vex.Island.Unity",
+  "rootNamespace": "Vex.Island",
+  "references": ["Vex.Island"],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

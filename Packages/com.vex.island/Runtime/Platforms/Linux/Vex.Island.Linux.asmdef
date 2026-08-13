@@ -1,0 +1,11 @@
+{
+  "name": "Vex.Island.Linux",
+  "rootNamespace": "Vex.Island",
+  "references": ["Vex.Island"],
+  "includePlatforms": ["Editor", "LinuxStandalone64"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "autoReferenced": true,
+  "noEngineReferences": false
+}

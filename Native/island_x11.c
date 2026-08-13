@@ -3,6 +3,7 @@
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,28 @@
 #define MWM_HINTS_DECORATIONS (1L << 1)
 
 extern int XShapeCombineRectangles(Display *, Window, int, int, int, XRectangle *, int, int, int);
+
+#define XFixesSelectionNotify 0
+#define XFixesSetSelectionOwnerNotify 0
+#define XFixesSetSelectionOwnerNotifyMask (1L << 0)
+#define XFixesSelectionWindowDestroyNotifyMask (1L << 1)
+#define XFixesSelectionClientCloseNotifyMask (1L << 2)
+
+typedef struct {
+    int type;
+    unsigned long serial;
+    int send_event;
+    Display *display;
+    Window window;
+    int subtype;
+    Window owner;
+    Atom selection;
+    unsigned long timestamp;
+    unsigned long selection_timestamp;
+} XFixesSelectionNotifyEvent;
+
+extern int XFixesQueryExtension(Display *, int *, int *);
+extern void XFixesSelectSelectionInput(Display *, Window, Atom, unsigned long);
 
 typedef struct {
     unsigned long flags;
@@ -38,13 +61,18 @@ static int IgnoreX(Display *d, XErrorEvent *e)
     return 0;
 }
 
+static void EnsureFixes(Display *d);
+
 static Display *Dpy(void)
 {
     if (!g_dpy)
     {
         g_dpy = XOpenDisplay(NULL);
         if (g_dpy)
+        {
             XSetErrorHandler(IgnoreX);
+            EnsureFixes(g_dpy);
+        }
     }
     return g_dpy;
 }
@@ -216,8 +244,15 @@ int Island_SetVisible(int visible)
 
 int Island_SetShape(const int *xywh, int count)
 {
-    if (!g_have || !Dpy() || !xywh || count <= 0)
+    if (!g_have || !Dpy())
         return 0;
+    if (!xywh || count <= 0)
+    {
+        XShapeCombineRectangles(g_dpy, g_win, ShapeBounding, 0, 0, NULL, 0, ShapeSet, Unsorted);
+        XShapeCombineRectangles(g_dpy, g_win, ShapeInput, 0, 0, NULL, 0, ShapeSet, Unsorted);
+        XFlush(g_dpy);
+        return 1;
+    }
     XRectangle *rects = (XRectangle *)malloc(sizeof(XRectangle) * (size_t)count);
     if (!rects)
         return 0;
@@ -361,4 +396,321 @@ int Island_Pointer(int *x, int *y)
     *x = rx;
     *y = ry;
     return 1;
+}
+
+static Window g_drop;
+static Window g_xdnd_source;
+static Window g_fix;
+static char g_drop_buf[4096];
+static int g_drop_len;
+static int g_drag_live;
+static int g_need_finished;
+static int g_fixes_base = -1;
+static int g_tgt;
+static Window g_sel_req;
+static unsigned long g_sel_ts;
+
+static const char *g_targets[] = {
+    "text/uri-list",
+    "text/plain;charset=utf-8",
+    "UTF8_STRING",
+    "text/plain",
+    "FILE_NAME",
+    "STRING",
+    NULL
+};
+
+static void Dlog(const char *fmt, ...)
+{
+    FILE *f = fopen("/tmp/island-xdnd.log", "a");
+    if (!f)
+        return;
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fputc('\n', f);
+    fclose(f);
+}
+
+static void XdndAware(Display *d, Window w)
+{
+    Atom aware = XInternAtom(d, "XdndAware", False);
+    unsigned long ver = 5;
+    XChangeProperty(d, w, aware, XA_ATOM, 32, PropModeReplace, (unsigned char *)&ver, 1);
+}
+
+/* Catcher on OUR X connection. Unity's window is on SDL's display, so
+   Xdnd sent there never reaches this .so. InputOnly is skipped by
+   Mutter/GTK pick; ARGB 0 + opacity 0 stays findable and has no pixels. */
+static Window CreateDrop(Display *d, Window root, int x, int y, int w, int h)
+{
+    XSetWindowAttributes swa;
+    memset(&swa, 0, sizeof(swa));
+    swa.override_redirect = True;
+    swa.event_mask = StructureNotifyMask | PropertyChangeMask;
+
+    XVisualInfo vi;
+    Window win = 0;
+    if (XMatchVisualInfo(d, DefaultScreen(d), 32, TrueColor, &vi))
+    {
+        swa.colormap = XCreateColormap(d, root, vi.visual, AllocNone);
+        swa.background_pixel = 0;
+        swa.border_pixel = 0;
+        win = XCreateWindow(d, root, x, y, (unsigned)w, (unsigned)h, 0,
+                            32, InputOutput, vi.visual,
+                            CWOverrideRedirect | CWEventMask | CWColormap |
+                                CWBackPixel | CWBorderPixel,
+                            &swa);
+    }
+    if (!win)
+        win = XCreateWindow(d, root, x, y, (unsigned)w, (unsigned)h, 0,
+                            0, InputOnly, CopyFromParent,
+                            CWOverrideRedirect | CWEventMask, &swa);
+    if (!win)
+        return 0;
+    XStoreName(d, win, "island-drop");
+    XdndAware(d, win);
+    {
+        unsigned long opacity = 0;
+        Atom opa = XInternAtom(d, "_NET_WM_WINDOW_OPACITY", False);
+        XChangeProperty(d, win, opa, XA_CARDINAL, 32, PropModeReplace,
+                        (unsigned char *)&opacity, 1);
+    }
+    return win;
+}
+
+int Island_Overlay(int x, int y, int w, int h)
+{
+    Display *d = Dpy();
+    if (!d)
+        return 0;
+    if (w <= 0 || h <= 0)
+    {
+        if (g_drop)
+        {
+            XUnmapWindow(d, g_drop);
+            XDestroyWindow(d, g_drop);
+            g_drop = 0;
+            XFlush(d);
+        }
+        return 1;
+    }
+    Window root = DefaultRootWindow(d);
+    if (!g_drop)
+    {
+        g_drop = CreateDrop(d, root, x, y, w, h);
+        if (!g_drop)
+            return 0;
+        Dlog("overlay create 0x%lx %dx%d+%d+%d", (unsigned long)g_drop, w, h, x, y);
+    }
+    else
+        XMoveResizeWindow(d, g_drop, x, y, (unsigned)w, (unsigned)h);
+    XMapRaised(d, g_drop);
+    XFlush(d);
+    return 1;
+}
+
+static void SendXdnd(Display *d, Window dest, const char *name, Window src, long a, long b, long c, long e)
+{
+    XEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = dest;
+    ev.xclient.message_type = XInternAtom(d, name, False);
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = (long)src;
+    ev.xclient.data.l[1] = a;
+    ev.xclient.data.l[2] = b;
+    ev.xclient.data.l[3] = c;
+    ev.xclient.data.l[4] = e;
+    XSendEvent(d, dest, False, NoEventMask, &ev);
+}
+
+static int ReadUriProp(Display *d, Window w, Atom prop, char *buf, int n)
+{
+    Atom actual;
+    int fmt;
+    unsigned long len, more;
+    unsigned char *data = NULL;
+    if (XGetWindowProperty(d, w, prop, 0, n / 4, True, AnyPropertyType,
+                           &actual, &fmt, &len, &more, &data) != Success || !data)
+        return 0;
+    int copy = (int)len;
+    if (fmt == 16)
+        copy *= 2;
+    if (fmt == 32)
+        copy *= 4;
+    if (copy >= n)
+        copy = n - 1;
+    memcpy(buf, data, (size_t)copy);
+    buf[copy] = 0;
+    XFree(data);
+    return copy;
+}
+
+static void EnsureFixes(Display *d)
+{
+    if (g_fixes_base != -1)
+        return;
+    int err = 0;
+    int base = 0;
+    if (!XFixesQueryExtension(d, &base, &err))
+    {
+        g_fixes_base = -2;
+        Dlog("fixes missing");
+        return;
+    }
+    g_fixes_base = base;
+    XSetWindowAttributes swa;
+    memset(&swa, 0, sizeof(swa));
+    swa.override_redirect = True;
+    g_fix = XCreateWindow(d, DefaultRootWindow(d), -8, -8, 1, 1, 0,
+                          0, InputOnly, CopyFromParent, CWOverrideRedirect, &swa);
+    XFixesSelectSelectionInput(
+        d, g_fix, XInternAtom(d, "XdndSelection", False),
+        XFixesSetSelectionOwnerNotifyMask | XFixesSelectionWindowDestroyNotifyMask |
+            XFixesSelectionClientCloseNotifyMask);
+    XFlush(d);
+    Dlog("fixes base=%d win=0x%lx", g_fixes_base, (unsigned long)g_fix);
+}
+
+static void RequestUris(Display *d, Window req, unsigned long ts)
+{
+    if (!req)
+        return;
+    if (!ts)
+        ts = CurrentTime;
+    g_sel_req = req;
+    g_sel_ts = ts;
+    g_tgt = 0;
+    Atom xdndsel = XInternAtom(d, "XdndSelection", False);
+    Atom dest = XInternAtom(d, "ISLAND_DROP", False);
+    Atom uri = XInternAtom(d, g_targets[0], False);
+    XConvertSelection(d, xdndsel, uri, dest, req, (Time)ts);
+    XFlush(d);
+}
+
+static void RequestNext(Display *d)
+{
+    g_tgt++;
+    if (!g_sel_req || !g_targets[g_tgt])
+        return;
+    Atom xdndsel = XInternAtom(d, "XdndSelection", False);
+    Atom dest = XInternAtom(d, "ISLAND_DROP", False);
+    Atom uri = XInternAtom(d, g_targets[g_tgt], False);
+    XConvertSelection(d, xdndsel, uri, dest, g_sel_req, (Time)g_sel_ts);
+    XFlush(d);
+}
+
+static void FinishOk(Display *d, int ok)
+{
+    if (!g_need_finished || !g_xdnd_source)
+        return;
+    Atom action = XInternAtom(d, "XdndActionCopy", False);
+    SendXdnd(d, g_xdnd_source, "XdndFinished", g_drop ? g_drop : g_fix,
+             ok ? 1 : 0, ok ? (long)action : 0, 0, 0);
+    XFlush(d);
+    g_need_finished = 0;
+}
+
+static int TakeReady(char *buf, int n)
+{
+    if (g_drop_len <= 0)
+        return 0;
+    int len = g_drop_len;
+    if (len >= n)
+        len = n - 1;
+    memcpy(buf, g_drop_buf, (size_t)len);
+    buf[len] = 0;
+    g_drop_len = 0;
+    return len;
+}
+
+int Island_DragLive(void)
+{
+    return g_drag_live;
+}
+
+int Island_XdndPoll(char *buf, int n)
+{
+    Display *d = Dpy();
+    if (!d || !buf || n <= 0)
+        return 0;
+    Atom enter = XInternAtom(d, "XdndEnter", False);
+    Atom pos = XInternAtom(d, "XdndPosition", False);
+    Atom drop = XInternAtom(d, "XdndDrop", False);
+    Atom action = XInternAtom(d, "XdndActionCopy", False);
+    Atom dest = XInternAtom(d, "ISLAND_DROP", False);
+    while (XPending(d))
+    {
+        XEvent ev;
+        XNextEvent(d, &ev);
+        if (g_fixes_base >= 0 && ev.type == g_fixes_base + XFixesSelectionNotify)
+        {
+            XFixesSelectionNotifyEvent *fe = (XFixesSelectionNotifyEvent *)&ev;
+            g_drag_live = fe->owner != 0;
+            Dlog("fixes subtype=%d owner=0x%lx ts=%lu live=%d",
+                 fe->subtype, (unsigned long)fe->owner,
+                 (unsigned long)fe->timestamp, g_drag_live);
+            if (g_drag_live)
+                RequestUris(d, g_fix, fe->timestamp);
+            continue;
+        }
+        if (ev.type == SelectionNotify)
+        {
+            Window req = ev.xselection.requestor;
+            if (ev.xselection.property == None)
+            {
+                Dlog("sel none target=%s", g_targets[g_tgt] ? g_targets[g_tgt] : "?");
+                RequestNext(d);
+                continue;
+            }
+            int got = ReadUriProp(d, req, dest, g_drop_buf, (int)sizeof(g_drop_buf));
+            Dlog("sel %s n=%d buf=%.80s",
+                 g_targets[g_tgt] ? g_targets[g_tgt] : "?", got,
+                 got > 0 ? g_drop_buf : "");
+            if (got > 0)
+            {
+                g_drop_len = got;
+                FinishOk(d, 1);
+            }
+            else
+                RequestNext(d);
+            continue;
+        }
+        if (ev.type != ClientMessage)
+            continue;
+        if (ev.xclient.message_type == enter)
+        {
+            g_xdnd_source = (Window)ev.xclient.data.l[0];
+            g_drag_live = 1;
+            Dlog("enter src=0x%lx flags=0x%lx", (unsigned long)g_xdnd_source,
+                 (unsigned long)ev.xclient.data.l[1]);
+            if (g_drop)
+                RequestUris(d, g_drop, 0);
+        }
+        else if (ev.xclient.message_type == pos)
+        {
+            g_xdnd_source = (Window)ev.xclient.data.l[0];
+            g_drag_live = 1;
+            if (g_drop)
+            {
+                SendXdnd(d, g_xdnd_source, "XdndStatus", g_drop, 1 | 2, 0, 0, (long)action);
+                XFlush(d);
+            }
+        }
+        else if (ev.xclient.message_type == drop)
+        {
+            g_xdnd_source = (Window)ev.xclient.data.l[0];
+            g_need_finished = 1;
+            unsigned long ts = (unsigned long)ev.xclient.data.l[2];
+            Dlog("drop src=0x%lx ts=%lu", (unsigned long)g_xdnd_source, ts);
+            if (g_drop)
+                RequestUris(d, g_drop, ts);
+            else
+                FinishOk(d, 0);
+        }
+    }
+    return TakeReady(buf, n);
 }

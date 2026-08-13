@@ -24,9 +24,9 @@ namespace Vex.Island
         public const int Port = 17321;
 
         public IslandMode Mode { get; private set; } = IslandMode.Idle;
-        public IslandEdge Edge { get; private set; } = IslandEdge.Top;
-        public IslandSpan Span { get; private set; } = IslandSpan.ActiveMonitor;
-        public bool Visible { get; private set; } = true;
+        public IslandEdge Edge { get; private set; } = IslandEdge.Left;
+        public IslandSpan Span { get; private set; } = IslandSpan.VirtualDesktop;
+        public bool Visible { get; private set; }
         public IReadOnlyList<string> Files => _files;
 
         public event Action Changed;
@@ -93,6 +93,17 @@ namespace Vex.Island
             Changed?.Invoke();
         }
 
+        public void Reveal()
+        {
+            Visible = true;
+            Changed?.Invoke();
+        }
+
+        public void PickOuterEdge(IslandRect[] screens, int pointerX)
+        {
+            Edge = IslandLayout.NearerOuter(screens, pointerX);
+        }
+
         public IslandPlacement ShownPlacement(IslandRect[] screens, int px, int py)
         {
             return IslandLayout.Dock(screens, px, py, Edge, Span,
@@ -133,12 +144,16 @@ namespace Vex.Island
                 case "IDLE":
                     _files.Clear();
                     Mode = IslandMode.Idle;
-                    Visible = true;
+                    Visible = false;
                     break;
                 case "FILES":
                     _files.Clear();
                     for (var i = 1; i < parts.Length; i++)
-                        _files.Add(parts[i]);
+                    {
+                        var path = IslandWindow.DecodeFileToken(parts[i]);
+                        if (path.Length > 0)
+                            _files.Add(path);
+                    }
                     Mode = _files.Count > 0 ? IslandMode.Files : IslandMode.Idle;
                     Visible = true;
                     break;

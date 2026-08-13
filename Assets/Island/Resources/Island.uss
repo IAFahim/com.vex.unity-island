@@ -8,13 +8,15 @@
 }
 
 .pill {
-    flex-direction: row;
+    flex-direction: column;
     align-items: center;
-    justify-content: space-between;
-    width: 412px;
-    height: 80px;
-    padding-left: 18px;
-    padding-right: 18px;
+    justify-content: center;
+    width: 80px;
+    height: 412px;
+    padding-top: 16px;
+    padding-bottom: 16px;
+    padding-left: 6px;
+    padding-right: 6px;
     background-color: rgba(18, 18, 23, 0.82);
     border-radius: 28px;
     border-width: 1px;
@@ -22,15 +24,17 @@
 }
 
 .left {
-    flex-direction: row;
+    flex-direction: column;
     align-items: center;
-    width: 90px;
+    width: auto;
+    margin-bottom: 10px;
 }
 
 .dot {
     width: 8px;
     height: 8px;
-    margin-right: 8px;
+    margin-right: 0;
+    margin-bottom: 6px;
     background-color: rgb(89, 242, 140);
     border-radius: 4px;
 }
@@ -39,19 +43,22 @@
     flex-grow: 1;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    font-size: 22px;
+    font-size: 14px;
     color: rgb(255, 255, 255);
+    width: 68px;
+    white-space: normal;
 }
 
 .meta {
-    font-size: 13px;
+    font-size: 11px;
     color: rgb(209, 214, 224);
-    -unity-text-align: middle-left;
+    -unity-text-align: middle-center;
 }
 
 .brand {
-    width: 78px;
-    -unity-text-align: middle-right;
+    width: auto;
+    margin-top: 10px;
+    -unity-text-align: middle-center;
 }
 
 .pill.files {

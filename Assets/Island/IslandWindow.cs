@@ -12,10 +12,10 @@ namespace Vex.Island
     /// </summary>
     public static class IslandWindow
     {
-        public const int Width = 420;
-        public const int Height = 88;
+        public const int Width = 88;
+        public const int Height = 420;
         public const int Radius = 28;
-        public const int TopMargin = 14;
+        public const int TopMargin = 10;
 
         public const int FlagBorderless = 1;
         public const int FlagTopmost = 2;
@@ -54,7 +54,8 @@ namespace Vex.Island
             var screens = QueryScreens();
             int px = 0, py = 0;
             TryPointer(out px, out py);
-            var place = IslandLayout.Dock(screens, px, py, IslandEdge.Top, IslandSpan.ActiveMonitor,
+            var edge = IslandLayout.NearerOuter(screens, px);
+            var place = IslandLayout.Dock(screens, px, py, edge, IslandSpan.VirtualDesktop,
                 Width, Height, TopMargin);
             X = place.X;
             Y = place.Y;
@@ -147,18 +148,189 @@ namespace Vex.Island
 
         public static IslandRect[] QueryScreens()
         {
+            var xr = ParseXrandr();
+            if (xr.Length > 0)
+                return xr;
 #if UNITY_STANDALONE_LINUX && !UNITY_EDITOR
             var buf = new int[32 * 4];
             var n = Linux_GetScreens(buf, 32);
-            if (n <= 0)
-                return FallbackScreens();
-            var rects = new IslandRect[n];
-            for (var i = 0; i < n; i++)
-                rects[i] = new IslandRect(buf[i * 4], buf[i * 4 + 1], buf[i * 4 + 2], buf[i * 4 + 3]);
-            return rects;
-#else
-            return FallbackScreens();
+            if (n > 0)
+            {
+                var rects = new IslandRect[n];
+                for (var i = 0; i < n; i++)
+                    rects[i] = new IslandRect(buf[i * 4], buf[i * 4 + 1], buf[i * 4 + 2], buf[i * 4 + 3]);
+                if (rects[0].W > 0 && rects[0].H > 0)
+                    return rects;
+            }
 #endif
+            return FallbackScreens();
+        }
+
+        static IslandRect[] ParseXrandr()
+        {
+            try
+            {
+                var p = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "xrandr",
+                    Arguments = "--current",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+                if (p == null)
+                    return System.Array.Empty<IslandRect>();
+                var text = p.StandardOutput.ReadToEnd();
+                p.WaitForExit(1500);
+                var list = new System.Collections.Generic.List<IslandRect>();
+                IslandRect? primary = null;
+                var lines = text.Split('\n');
+                for (var i = 0; i < lines.Length; i++)
+                {
+                    var line = lines[i];
+                    if (line.IndexOf(" connected", System.StringComparison.Ordinal) < 0)
+                        continue;
+                    var r = ParseMode(line);
+                    if (r.W <= 0 || r.H <= 0)
+                        continue;
+                    if (line.IndexOf(" primary ", System.StringComparison.Ordinal) >= 0)
+                        primary = r;
+                    else
+                        list.Add(r);
+                }
+
+                if (primary.HasValue)
+                    list.Insert(0, primary.Value);
+                return list.ToArray();
+            }
+            catch
+            {
+                return System.Array.Empty<IslandRect>();
+            }
+        }
+
+        static IslandRect ParseMode(string line)
+        {
+            // "DP-4 connected primary 1440x2560+1080+0"
+            var plus = line.LastIndexOf('+');
+            if (plus <= 0)
+                return new IslandRect(0, 0, 0, 0);
+            var plus2 = line.LastIndexOf('+', plus - 1);
+            if (plus2 <= 0)
+                return new IslandRect(0, 0, 0, 0);
+            var xAt = line.LastIndexOf('x', plus2);
+            if (xAt <= 0)
+                return new IslandRect(0, 0, 0, 0);
+            var sp = line.LastIndexOf(' ', xAt);
+            if (sp < 0)
+                return new IslandRect(0, 0, 0, 0);
+            int w, h, x, y;
+            if (!int.TryParse(line.Substring(sp + 1, xAt - sp - 1), out w))
+                return new IslandRect(0, 0, 0, 0);
+            if (!int.TryParse(line.Substring(xAt + 1, plus2 - xAt - 1), out h))
+                return new IslandRect(0, 0, 0, 0);
+            if (!int.TryParse(line.Substring(plus2 + 1, plus - plus2 - 1), out x))
+                return new IslandRect(0, 0, 0, 0);
+            var end = plus + 1;
+            while (end < line.Length && line[end] >= '0' && line[end] <= '9')
+                end++;
+            if (!int.TryParse(line.Substring(plus + 1, end - plus - 1), out y))
+                return new IslandRect(0, 0, 0, 0);
+            return new IslandRect(x, y, w, h);
+        }
+
+        public static void ApplyShape()
+        {
+#if UNITY_STANDALONE_LINUX && !UNITY_EDITOR
+            var rects = new int[Height * 4];
+            var n = IslandShape.BuildRoundedRect(Width, Height, Radius, rects);
+            if (n > 0)
+                Linux_SetShape(rects, n);
+#endif
+        }
+
+        public static void ClearShape()
+        {
+#if UNITY_STANDALONE_LINUX && !UNITY_EDITOR
+            Linux_SetShape(null, 0);
+#endif
+        }
+
+        public static void PlaceDropTarget(int x, int y)
+        {
+#if UNITY_STANDALONE_LINUX && !UNITY_EDITOR
+            Linux_Overlay(x, y, Width, Height);
+#endif
+        }
+
+        public static void OverlayHide()
+        {
+#if UNITY_STANDALONE_LINUX && !UNITY_EDITOR
+            Linux_Overlay(0, 0, 0, 0);
+#endif
+        }
+
+        public static bool DragLive()
+        {
+#if UNITY_STANDALONE_LINUX && !UNITY_EDITOR
+            return Linux_DragLive() != 0;
+#else
+            return false;
+#endif
+        }
+
+        public static string[] PollDrop()
+        {
+#if UNITY_STANDALONE_LINUX && !UNITY_EDITOR
+            var buf = new byte[4096];
+            var n = Linux_XdndPoll(buf, buf.Length);
+            if (n <= 0)
+                return System.Array.Empty<string>();
+            var text = System.Text.Encoding.UTF8.GetString(buf, 0, n);
+            return ParseUriList(text);
+#else
+            return System.Array.Empty<string>();
+#endif
+        }
+
+        static string[] ParseUriList(string text)
+        {
+            var list = new System.Collections.Generic.List<string>();
+            var lines = text.Replace('\r', '\n').Split('\n');
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var line = DecodeFileToken(lines[i]);
+                if (line.Length > 0)
+                    list.Add(line);
+            }
+
+            return list.ToArray();
+        }
+
+        public static string DecodeFileToken(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return "";
+            var line = raw.Trim();
+            if (line.Length == 0 || line[0] == '#')
+                return "";
+            line = line.Replace("\\ ", " ");
+            if (line.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    return new Uri(line).LocalPath;
+                }
+                catch
+                {
+                    line = Uri.UnescapeDataString(line.Substring(7));
+                    if (line.StartsWith("localhost/", StringComparison.OrdinalIgnoreCase))
+                        line = line.Substring(9);
+                }
+            }
+            else
+                line = Uri.UnescapeDataString(line);
+            return line;
         }
 
         public static bool TryPointer(out int x, out int y)
@@ -211,17 +383,21 @@ namespace Vex.Island
         [DllImport(Lib, EntryPoint = "Island_Pointer")]
         static extern int Linux_Pointer(out int x, out int y);
 
+        [DllImport(Lib, EntryPoint = "Island_Overlay")]
+        static extern int Linux_Overlay(int x, int y, int w, int h);
+
+        [DllImport(Lib, EntryPoint = "Island_XdndPoll")]
+        static extern int Linux_XdndPoll(byte[] buf, int n);
+
+        [DllImport(Lib, EntryPoint = "Island_DragLive")]
+        static extern int Linux_DragLive();
+
         static bool LinuxApply(int flags)
         {
             var pid = Process.GetCurrentProcess().Id;
             var rc = Linux_Apply(pid, X, Y, Width, Height, flags);
             if (rc == 1 && (flags & FlagShape) != 0)
-            {
-                var rects = new int[Height * 4];
-                var n = IslandShape.BuildRoundedRect(Width, Height, Radius, rects);
-                if (n > 0)
-                    Linux_SetShape(rects, n);
-            }
+                ApplyShape();
 
             if (rc == 1)
                 Backend = "x11";

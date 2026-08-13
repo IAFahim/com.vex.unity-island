@@ -26,16 +26,16 @@ Idle on this machine: **~390 MB RSS / ~311 MB PSS, ~2.6% of one core, 22 MB VRAM
 - **Mode** — idle clock, or “N files” when something selected files
 - **IPC** — `127.0.0.1:17321` (works on Windows later too)
 
+Starts **hidden at 1 fps**. Drag a selected file in Files/Nautilus and the pill slides out with the name. Drop or release and it hides again. Esc still quits.
+
 ```bash
 ./scripts/run-island.sh
-./scripts/island-ctl.sh files ~/Pictures/a.png ~/Notes/todo.md
-./scripts/island-ctl.sh edge bottom
-./scripts/island-ctl.sh span virtual
+# or poke it yourself:
+./scripts/island-ctl.sh files ~/Pictures/a.png
 ./scripts/island-ctl.sh hide
-./scripts/island-ctl.sh idle
 ```
 
-A file manager can call `island-ctl.sh files …` when the selection changes. That adapter is not in this repo yet.
+`scripts/island-watch.py` (started by the player) watches X11 button-drag + AT-SPI selection in Nautilus/Files. Native Wayland file managers work if accessibility is on.
 
 ## Build
 

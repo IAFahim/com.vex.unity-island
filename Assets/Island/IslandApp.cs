@@ -7,8 +7,8 @@ namespace Vex.Island
 {
     public sealed class IslandApp : MonoBehaviour
     {
-        const int IdleFps = 15;
-        const float SlideSeconds = 0.22f;
+        const int ShownFps = 15;
+        const int HiddenFps = 10;
 
         readonly IslandHost _host = new IslandHost();
 
@@ -19,17 +19,13 @@ namespace Vex.Island
         VisualElement _dot;
         float _nextClock;
         bool _dragging;
-        bool _dirty = true;
-        float _slide;
-        IslandPlacement _from;
-        IslandPlacement _to;
-        bool _sliding;
+        bool _dirty;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
         {
             Application.runInBackground = true;
-            Application.targetFrameRate = IdleFps;
+            Application.targetFrameRate = HiddenFps;
             QualitySettings.vSyncCount = 0;
             Screen.fullScreen = false;
             Screen.fullScreenMode = FullScreenMode.Windowed;
@@ -53,9 +49,10 @@ namespace Vex.Island
             }
 
             IslandWindow.Apply();
+            Snap(false);
+            Application.targetFrameRate = HiddenFps;
             _host.Changed += () => _dirty = true;
             _host.Start();
-            SnapTo(_host.Visible);
             Paint();
         }
 
@@ -67,6 +64,29 @@ namespace Vex.Island
         void Update()
         {
             _host.Pump();
+            if (_dirty)
+            {
+                _dirty = false;
+                Paint();
+                Snap(_host.Visible);
+            }
+
+            var dropped = IslandWindow.PollDrop();
+            if (dropped != null && dropped.Length > 0)
+            {
+                _host.ShowFiles(dropped);
+                RememberDrop(dropped);
+                Paint();
+                Snap(true);
+                _dirty = false;
+            }
+            else if (IslandWindow.DragLive() && !_host.Visible)
+            {
+                _host.Reveal();
+                Paint();
+                Snap(true);
+                _dirty = false;
+            }
 
             if (Time.unscaledTime >= _nextClock)
             {
@@ -75,23 +95,15 @@ namespace Vex.Island
                     _clock.text = DateTime.Now.ToString("HH:mm:ss");
             }
 
-            if (_dirty)
-            {
-                _dirty = false;
-                Paint();
-                BeginSlide(_host.Visible);
-            }
-
-            if (_sliding)
-                TickSlide();
-
             if (_dragging)
             {
                 if (!Input.GetMouseButton(0))
                 {
                     _dragging = false;
                     IslandWindow.EndDrag();
-                    Application.targetFrameRate = IdleFps;
+                    if (_host.Visible)
+                        IslandWindow.PlaceDropTarget(IslandWindow.X, IslandWindow.Y);
+                    RestFps();
                 }
                 else
                     IslandWindow.Drag();
@@ -102,7 +114,11 @@ namespace Vex.Island
 
 #if !UNITY_EDITOR
             if (!IslandWindow.Applied && Time.frameCount < 30 && Time.frameCount % 5 == 0)
+            {
                 IslandWindow.Apply();
+                if (!_host.Visible)
+                    Snap(false);
+            }
 #endif
         }
 
@@ -130,7 +146,7 @@ namespace Vex.Island
             }
         }
 
-        void BeginSlide(bool show)
+        void Snap(bool show)
         {
             int px, py;
             if (!IslandWindow.TryPointer(out px, out py))
@@ -140,42 +156,44 @@ namespace Vex.Island
             }
 
             var screens = IslandWindow.QueryScreens();
-            _from = new IslandPlacement(IslandWindow.X, IslandWindow.Y, _host.Edge,
-                _host.ShownPlacement(screens, px, py).Bound);
-            _to = show ? _host.ShownPlacement(screens, px, py) : _host.HiddenPlacement(screens, px, py);
-            _slide = 0f;
-            _sliding = true;
-            Application.targetFrameRate = 60;
-        }
-
-        void TickSlide()
-        {
-            _slide += Time.unscaledDeltaTime / SlideSeconds;
-            var t = _slide >= 1f ? 1f : EaseOut(_slide);
-            var x = Mathf.RoundToInt(Mathf.Lerp(_from.X, _to.X, t));
-            var y = Mathf.RoundToInt(Mathf.Lerp(_from.Y, _to.Y, t));
-            IslandWindow.Move(x, y);
-            if (_slide >= 1f)
+            _host.PickOuterEdge(screens, px);
+            var shown = _host.ShownPlacement(screens, px, py);
+            if (show)
             {
-                _sliding = false;
-                if (!_dragging)
-                    Application.targetFrameRate = IdleFps;
+                IslandWindow.SetVisible(true);
+                IslandWindow.Move(shown.X, shown.Y);
+                IslandWindow.ApplyShape();
+                IslandWindow.PlaceDropTarget(shown.X, shown.Y);
             }
+            else
+            {
+                // Don't XUnmap (Unity remaps onto a monitor). Don't rely
+                // on off-screen coords (XWayland/Mutter clamp to the desk).
+                // Empty XShape = no pixels, so no smear if Unity remaps.
+                IslandWindow.OverlayHide();
+                IslandWindow.ClearShape();
+            }
+            RestFps();
         }
 
-        void SnapTo(bool show)
+        void RestFps()
         {
-            int px, py;
-            IslandWindow.TryPointer(out px, out py);
-            var p = show
-                ? _host.ShownPlacement(IslandWindow.QueryScreens(), px, py)
-                : _host.HiddenPlacement(IslandWindow.QueryScreens(), px, py);
-            IslandWindow.Move(p.X, p.Y);
+            if (_dragging)
+                return;
+            Application.targetFrameRate = _host.Visible ? ShownFps : HiddenFps;
         }
 
-        static float EaseOut(float t)
+        static void RememberDrop(string[] paths)
         {
-            return 1f - (1f - t) * (1f - t);
+            try
+            {
+                File.WriteAllText(
+                    Path.Combine(Application.persistentDataPath, "last-drop.txt"),
+                    string.Join("\n", paths) + "\n");
+            }
+            catch
+            {
+            }
         }
 
         static string ShortName(string path)

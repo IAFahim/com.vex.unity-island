@@ -64,16 +64,17 @@ namespace Vex.Island
 
         public IslandPlacement Hidden(int size)
         {
+            var park = Math.Max(size, 4000);
             switch (Edge)
             {
                 case IslandEdge.Top:
-                    return new IslandPlacement(X, Bound.Y - size, Edge, Bound);
+                    return new IslandPlacement(X, Bound.Y - park, Edge, Bound);
                 case IslandEdge.Bottom:
-                    return new IslandPlacement(X, Bound.Y + Bound.H, Edge, Bound);
+                    return new IslandPlacement(X, Bound.Y + Bound.H + park - size, Edge, Bound);
                 case IslandEdge.Left:
-                    return new IslandPlacement(Bound.X - size, Y, Edge, Bound);
+                    return new IslandPlacement(Bound.X - park, Y, Edge, Bound);
                 default:
-                    return new IslandPlacement(Bound.X + Bound.W, Y, Edge, Bound);
+                    return new IslandPlacement(Bound.X + Bound.W + park - size, Y, Edge, Bound);
             }
         }
     }
@@ -100,12 +101,19 @@ namespace Vex.Island
             switch (span)
             {
                 case IslandSpan.VirtualDesktop:
-                    bound = screens[0];
-                    for (var i = 1; i < screens.Length; i++)
-                        bound = IslandRect.Union(bound, screens[i]);
+                    if (edge == IslandEdge.Left)
+                        bound = Leftmost(screens);
+                    else if (edge == IslandEdge.Right)
+                        bound = Rightmost(screens);
+                    else
+                    {
+                        bound = screens[0];
+                        for (var i = 1; i < screens.Length; i++)
+                            bound = IslandRect.Union(bound, screens[i]);
+                    }
                     break;
                 case IslandSpan.Primary:
-                    bound = screens[0];
+                    bound = PrimaryOf(screens);
                     break;
                 default:
                     bound = ScreenAt(screens, pointerX, pointerY);
@@ -134,6 +142,51 @@ namespace Vex.Island
             }
 
             return new IslandPlacement(x, y, edge, bound);
+        }
+
+        public static IslandRect Leftmost(IslandRect[] screens)
+        {
+            var best = screens[0];
+            for (var i = 1; i < screens.Length; i++)
+            {
+                if (screens[i].X < best.X)
+                    best = screens[i];
+            }
+
+            return best;
+        }
+
+        public static IslandRect Rightmost(IslandRect[] screens)
+        {
+            var best = screens[0];
+            for (var i = 1; i < screens.Length; i++)
+            {
+                if (screens[i].X + screens[i].W > best.X + best.W)
+                    best = screens[i];
+            }
+
+            return best;
+        }
+
+        public static IslandEdge NearerOuter(IslandRect[] screens, int pointerX)
+        {
+            var left = Leftmost(screens);
+            var right = Rightmost(screens);
+            var dl = pointerX - left.X;
+            var dr = right.X + right.W - pointerX;
+            return dl <= dr ? IslandEdge.Left : IslandEdge.Right;
+        }
+
+        public static IslandRect PrimaryOf(IslandRect[] screens)
+        {
+            var best = screens[0];
+            for (var i = 1; i < screens.Length; i++)
+            {
+                if (screens[i].W * (long)screens[i].H > best.W * (long)best.H)
+                    best = screens[i];
+            }
+
+            return best;
         }
 
         public static IslandRect ScreenAt(IslandRect[] screens, int px, int py)

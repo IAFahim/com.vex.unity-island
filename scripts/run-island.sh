@@ -12,7 +12,7 @@ export SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR=0
 
 # Native Wayland cannot set position (xdg-shell). XWayland can, so drag works.
 BACKEND="${ISLAND_BACKEND:-x11}"
-ARGS=(-popupwindow -screen-fullscreen 0 -screen-width 420 -screen-height 88)
+ARGS=(-popupwindow -screen-fullscreen 0 -screen-width 88 -screen-height 420)
 
 if [[ "$BACKEND" == "wayland" && -n "${WAYLAND_DISPLAY:-}" ]]; then
   ARGS+=(-force-wayland)

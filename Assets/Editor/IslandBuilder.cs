@@ -52,6 +52,7 @@ namespace Vex.Island.Editor
             }
 
             EnsurePanelSettings();
+            EnsureWatcher();
             Debug.Log("Island settings applied");
         }
 
@@ -74,6 +75,16 @@ namespace Vex.Island.Editor
             settings.clearDepthStencil = true;
             EditorUtility.SetDirty(settings);
             AssetDatabase.SaveAssets();
+        }
+
+        static void EnsureWatcher()
+        {
+            const string src = "scripts/island-watch.py";
+            const string dst = "Assets/StreamingAssets/island-watch.py";
+            if (!File.Exists(src))
+                return;
+            Directory.CreateDirectory("Assets/StreamingAssets");
+            File.Copy(src, dst, true);
         }
 
         [MenuItem("Island/Build Linux Player")]

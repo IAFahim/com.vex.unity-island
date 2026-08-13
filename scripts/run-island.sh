@@ -1,11 +1,25 @@
 #!/usr/bin/env bash
-# Prefer native Wayland. Unity still speaks XWayland if you pass -force-x11.
+# Start the Island service (hidden). Does not show the pill.
+# If the user unit is installed, this just starts systemd --user island.service.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN="$ROOT/Builds/Linux/Island"
+
+if [[ "${ISLAND_DIRECT:-0}" != 1 ]] && command -v systemctl >/dev/null &&
+   systemctl --user cat island.service >/dev/null 2>&1; then
+  systemctl --user start island.service
+  echo "island.service $(systemctl --user is-active island.service)"
+  exit 0
+fi
+
 if [[ ! -x "$BIN" ]]; then
   echo "missing player: $BIN (build with Island/Build Linux Player)" >&2
   exit 1
+fi
+
+if ss -ltn 2>/dev/null | grep -q ':17321 '; then
+  echo "island already running (127.0.0.1:17321)"
+  exit 0
 fi
 
 export SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR=0

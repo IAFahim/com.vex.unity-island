@@ -50,7 +50,7 @@ namespace Vex.Island
             Screen.fullScreenMode = FullScreenMode.Windowed;
             Screen.SetResolution(Width, Height, FullScreenMode.Windowed);
 
-            var flags = FlagBorderless | FlagTopmost | FlagSkipTaskbar | FlagShape;
+            var flags = FlagBorderless | FlagTopmost | FlagSkipTaskbar;
             var screens = QueryScreens();
             int px = 0, py = 0;
             TryPointer(out px, out py);
@@ -263,6 +263,20 @@ namespace Vex.Island
 #endif
         }
 
+        public static void ArmEdges()
+        {
+#if UNITY_STANDALONE_LINUX && !UNITY_EDITOR
+            var screens = QueryScreens();
+            if (screens == null || screens.Length == 0)
+                return;
+            var left = IslandLayout.Leftmost(screens);
+            var right = IslandLayout.Rightmost(screens);
+            const int sliver = 16;
+            Linux_ArmEdge(left.X, left.Y, sliver, left.H);
+            Linux_ArmEdge(right.X + right.W - sliver, right.Y, sliver, right.H);
+#endif
+        }
+
         public static void OverlayHide()
         {
 #if UNITY_STANDALONE_LINUX && !UNITY_EDITOR
@@ -274,6 +288,15 @@ namespace Vex.Island
         {
 #if UNITY_STANDALONE_LINUX && !UNITY_EDITOR
             return Linux_DragLive() != 0;
+#else
+            return false;
+#endif
+        }
+
+        public static bool WantQuit()
+        {
+#if UNITY_STANDALONE_LINUX && !UNITY_EDITOR
+            return Linux_WantQuit() != 0;
 #else
             return false;
 #endif
@@ -386,11 +409,17 @@ namespace Vex.Island
         [DllImport(Lib, EntryPoint = "Island_Overlay")]
         static extern int Linux_Overlay(int x, int y, int w, int h);
 
+        [DllImport(Lib, EntryPoint = "Island_ArmEdge")]
+        static extern int Linux_ArmEdge(int x, int y, int w, int h);
+
         [DllImport(Lib, EntryPoint = "Island_XdndPoll")]
         static extern int Linux_XdndPoll(byte[] buf, int n);
 
         [DllImport(Lib, EntryPoint = "Island_DragLive")]
         static extern int Linux_DragLive();
+
+        [DllImport(Lib, EntryPoint = "Island_WantQuit")]
+        static extern int Linux_WantQuit();
 
         static bool LinuxApply(int flags)
         {

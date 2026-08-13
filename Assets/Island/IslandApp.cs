@@ -21,6 +21,7 @@ namespace Vex.Island
         bool _dragging;
         bool _dirty;
         bool _dragSession;
+        float _armedAt;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
@@ -50,8 +51,10 @@ namespace Vex.Island
             }
 
             IslandWindow.Apply();
+            IslandWindow.ArmEdges();
             Snap(false);
             Application.targetFrameRate = HiddenFps;
+            _armedAt = Time.unscaledTime + 0.8f;
             _host.Changed += () => _dirty = true;
             _host.Start();
             Paint();
@@ -69,11 +72,17 @@ namespace Vex.Island
             {
                 _dirty = false;
                 Paint();
-                Snap(_host.Visible);
+                Snap(HasFile());
+            }
+
+            if (!HasFile())
+            {
+                IslandWindow.ClearShape();
+                IslandWindow.SetVisible(false);
             }
 
             var dropped = IslandWindow.PollDrop();
-            var live = IslandWindow.DragLive();
+            var live = Time.unscaledTime >= _armedAt && IslandWindow.DragLive();
             if (dropped != null && dropped.Length > 0)
             {
                 _host.ShowFiles(dropped);
@@ -83,18 +92,8 @@ namespace Vex.Island
                 Snap(true);
                 _dirty = false;
             }
-            else if (live && !_host.Visible)
-            {
-                _host.Reveal();
-                _dragSession = true;
-                Paint();
-                Snap(true);
-                _dirty = false;
-            }
             else if (_dragSession && !live)
             {
-                // Drop or cancel: put it away. Keep this frame if we just
-                // painted a name from the same poll.
                 _host.Dismiss();
                 _dragSession = false;
                 Paint();
@@ -123,17 +122,40 @@ namespace Vex.Island
                     IslandWindow.Drag();
             }
 
-            if (Input.GetKeyDown(KeyCode.Escape))
+            if (IslandWindow.WantQuit() || Input.GetKeyDown(KeyCode.Escape))
+            {
+                if (_host.Visible || _dragSession)
+                {
+                    _host.Dismiss();
+                    _dragSession = false;
+                    Paint();
+                    Snap(false);
+                    _dirty = false;
+                }
+            }
+
+            if (_host.ShouldQuit)
+            {
                 Application.Quit();
+#if !UNITY_EDITOR
+                System.Environment.Exit(0);
+#endif
+            }
 
 #if !UNITY_EDITOR
             if (!IslandWindow.Applied && Time.frameCount < 30 && Time.frameCount % 5 == 0)
             {
                 IslandWindow.Apply();
+                IslandWindow.ArmEdges();
                 if (!_host.Visible)
                     Snap(false);
             }
 #endif
+        }
+
+        bool HasFile()
+        {
+            return _host.Visible && _host.Mode == IslandMode.Files && _host.Files.Count > 0;
         }
 
         void Paint()
@@ -141,7 +163,12 @@ namespace Vex.Island
             if (_pill == null)
                 return;
 
-            if (_host.Mode == IslandMode.Files && _host.Files.Count > 0)
+            var show = HasFile();
+            _pill.style.visibility = show
+                ? UnityEngine.UIElements.Visibility.Visible
+                : UnityEngine.UIElements.Visibility.Hidden;
+
+            if (show)
             {
                 _pill.EnableInClassList("files", true);
                 _dot.EnableInClassList("files", true);
@@ -174,6 +201,8 @@ namespace Vex.Island
             var shown = _host.ShownPlacement(screens, px, py);
             if (show)
             {
+                if (_pill != null)
+                    _pill.style.visibility = UnityEngine.UIElements.Visibility.Visible;
                 IslandWindow.SetVisible(true);
                 IslandWindow.Move(shown.X, shown.Y);
                 IslandWindow.ApplyShape();
@@ -184,8 +213,11 @@ namespace Vex.Island
                 // Don't XUnmap (Unity remaps onto a monitor). Don't rely
                 // on off-screen coords (XWayland/Mutter clamp to the desk).
                 // Empty XShape = no pixels, so no smear if Unity remaps.
+                if (_pill != null)
+                    _pill.style.visibility = UnityEngine.UIElements.Visibility.Hidden;
                 IslandWindow.OverlayHide();
                 IslandWindow.ClearShape();
+                IslandWindow.SetVisible(false);
             }
             RestFps();
         }

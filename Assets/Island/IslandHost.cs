@@ -27,6 +27,7 @@ namespace Vex.Island
         public IslandEdge Edge { get; private set; } = IslandEdge.Left;
         public IslandSpan Span { get; private set; } = IslandSpan.VirtualDesktop;
         public bool Visible { get; private set; }
+        public bool ShouldQuit { get; private set; }
         public IReadOnlyList<string> Files => _files;
 
         public event Action Changed;
@@ -132,6 +133,9 @@ namespace Vex.Island
                 return;
             switch (parts[0].ToUpperInvariant())
             {
+                case "QUIT":
+                    ShouldQuit = true;
+                    break;
                 case "SHOW":
                     Visible = true;
                     break;

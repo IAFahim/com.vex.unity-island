@@ -26,7 +26,13 @@ Idle on this machine: **~390 MB RSS / ~311 MB PSS, ~2.6% of one core, 22 MB VRAM
 - **Mode** — idle clock, or “N files” when something selected files
 - **IPC** — `127.0.0.1:17321` (works on Windows later too)
 
-Starts **hidden**. Drag a file and the pill snaps to the outer edge with the name. Drop or release and it hides. Esc still quits.
+Launch only starts the service (no pill). Drag a file and the pill snaps to the outer edge with the name. Drop, release, or Esc hides it.
+
+```bash
+./scripts/install-service.sh    # systemd --user, stays across logins
+./scripts/run-island.sh         # start (or activate the unit)
+./scripts/island-ctl.sh quit    # stop the player
+```
 
 ```bash
 ./scripts/run-island.sh
@@ -44,4 +50,4 @@ make -C Native
 unity run . --timeout 400 -- -executeMethod Vex.Island.Editor.IslandBuilder.SetupAndBuild -quit
 ```
 
-Esc quits. Drag the pill (XWayland).
+Esc hides. `island-ctl.sh quit` stops the player. Drag the pill (XWayland).

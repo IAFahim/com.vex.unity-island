@@ -3,6 +3,13 @@
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/extensions/XI2.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <linux/input.h>
+#include <poll.h>
+#include <pthread.h>
+#include <sys/ioctl.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +46,31 @@ typedef struct {
 extern int XFixesQueryExtension(Display *, int *, int *);
 extern void XFixesSelectSelectionInput(Display *, Window, Atom, unsigned long);
 
+#define GenericEvent 35
+
+typedef struct {
+    int deviceid;
+    int mask_len;
+    unsigned char *mask;
+} XIEventMask;
+
+typedef struct {
+    int type;
+    unsigned long serial;
+    int send_event;
+    Display *display;
+    int extension;
+    int evtype;
+    unsigned long time;
+    int deviceid;
+    int sourceid;
+    int detail;
+    int flags;
+} XIRawEvent;
+
+extern int XIQueryVersion(Display *, int *, int *);
+extern int XISelectEvents(Display *, Window, XIEventMask *, int);
+
 typedef struct {
     unsigned long flags;
     unsigned long functions;
@@ -62,6 +94,10 @@ static int IgnoreX(Display *d, XErrorEvent *e)
 }
 
 static void EnsureFixes(Display *d);
+static void EnsureXI2(Display *d);
+static void OpenKeyboards(void);
+static void StartEscThread(void);
+static void GrabEsc(Display *d, int on);
 
 static Display *Dpy(void)
 {
@@ -72,6 +108,9 @@ static Display *Dpy(void)
         {
             XSetErrorHandler(IgnoreX);
             EnsureFixes(g_dpy);
+            EnsureXI2(g_dpy);
+            OpenKeyboards();
+            StartEscThread();
         }
     }
     return g_dpy;
@@ -216,7 +255,9 @@ int Island_Apply(int pid, int x, int y, int w, int h, int flags)
     }
 
     XMoveResizeWindow(d, win, x, y, (unsigned)w, (unsigned)h);
-    XRaiseWindow(d, win);
+    /* Invisible until Snap(true) applies the capsule. No raise. */
+    XShapeCombineRectangles(d, win, ShapeBounding, 0, 0, NULL, 0, ShapeSet, Unsorted);
+    XShapeCombineRectangles(d, win, ShapeInput, 0, 0, NULL, 0, ShapeSet, Unsorted);
     XFlush(d);
     return 1;
 }
@@ -404,11 +445,24 @@ static Window g_fix;
 static char g_drop_buf[4096];
 static int g_drop_len;
 static int g_drag_live;
+static int g_xdnd_owner;
+static int g_xi_drag;
 static int g_need_finished;
+static int g_xi_opcode = -1;
+static int g_btn1;
+static int g_press_x, g_press_y;
+static Window g_edge[2];
 static int g_fixes_base = -1;
 static int g_tgt;
 static Window g_sel_req;
 static unsigned long g_sel_ts;
+static int g_esc_grab;
+static int g_want_quit;
+#define MAX_EV 8
+static int g_evfd[MAX_EV];
+static int g_nevf;
+
+#define XK_Escape 0xff1b
 
 static const char *g_targets[] = {
     "text/uri-list",
@@ -440,33 +494,16 @@ static void XdndAware(Display *d, Window w)
     XChangeProperty(d, w, aware, XA_ATOM, 32, PropModeReplace, (unsigned char *)&ver, 1);
 }
 
-/* Catcher on OUR X connection. Unity's window is on SDL's display, so
-   Xdnd sent there never reaches this .so. InputOnly is skipped by
-   Mutter/GTK pick; ARGB 0 + opacity 0 stays findable and has no pixels. */
+/* InputOnly: no pixmap, cannot paint a black bar. */
 static Window CreateDrop(Display *d, Window root, int x, int y, int w, int h)
 {
     XSetWindowAttributes swa;
     memset(&swa, 0, sizeof(swa));
     swa.override_redirect = True;
-    swa.event_mask = StructureNotifyMask | PropertyChangeMask;
-
-    XVisualInfo vi;
-    Window win = 0;
-    if (XMatchVisualInfo(d, DefaultScreen(d), 32, TrueColor, &vi))
-    {
-        swa.colormap = XCreateColormap(d, root, vi.visual, AllocNone);
-        swa.background_pixel = 0;
-        swa.border_pixel = 0;
-        win = XCreateWindow(d, root, x, y, (unsigned)w, (unsigned)h, 0,
-                            32, InputOutput, vi.visual,
-                            CWOverrideRedirect | CWEventMask | CWColormap |
-                                CWBackPixel | CWBorderPixel,
-                            &swa);
-    }
-    if (!win)
-        win = XCreateWindow(d, root, x, y, (unsigned)w, (unsigned)h, 0,
-                            0, InputOnly, CopyFromParent,
-                            CWOverrideRedirect | CWEventMask, &swa);
+    swa.event_mask = StructureNotifyMask | PropertyChangeMask | KeyPressMask;
+    Window win = XCreateWindow(d, root, x, y, (unsigned)w, (unsigned)h, 0,
+                               0, InputOnly, CopyFromParent,
+                               CWOverrideRedirect | CWEventMask, &swa);
     if (!win)
         return 0;
     XStoreName(d, win, "island-drop");
@@ -478,6 +515,139 @@ static Window CreateDrop(Display *d, Window root, int x, int y, int w, int h)
                         (unsigned char *)&opacity, 1);
     }
     return win;
+}
+
+static int KeyBit(const unsigned char *bits, int key)
+{
+    return (bits[key / 8] >> (key % 8)) & 1;
+}
+
+static void OpenKeyboards(void)
+{
+    DIR *dir;
+    struct dirent *de;
+    if (g_nevf > 0)
+        return;
+    dir = opendir("/dev/input");
+    if (!dir)
+        return;
+    while ((de = readdir(dir)) && g_nevf < MAX_EV)
+    {
+        char path[64];
+        unsigned char bits[(KEY_MAX + 7) / 8];
+        int fd;
+        if (strncmp(de->d_name, "event", 5) != 0)
+            continue;
+        snprintf(path, sizeof(path), "/dev/input/%s", de->d_name);
+        fd = open(path, O_RDONLY | O_NONBLOCK);
+        if (fd < 0)
+            continue;
+        memset(bits, 0, sizeof(bits));
+        if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(bits)), bits) < 0 ||
+            !KeyBit(bits, KEY_ESC) || !KeyBit(bits, KEY_A))
+        {
+            close(fd);
+            continue;
+        }
+        g_evfd[g_nevf++] = fd;
+    }
+    closedir(dir);
+    Dlog("esc evdev n=%d", g_nevf);
+}
+
+static void NoteEsc(void)
+{
+    g_want_quit = 1;
+    Dlog("esc hide");
+}
+
+static void PollEsc(void)
+{
+    struct input_event ev;
+    int i;
+    OpenKeyboards();
+    for (i = 0; i < g_nevf; i++)
+    {
+        while (read(g_evfd[i], &ev, sizeof(ev)) == (ssize_t)sizeof(ev))
+        {
+            if (ev.type == EV_KEY && ev.code == KEY_ESC && ev.value == 1)
+                NoteEsc();
+        }
+    }
+}
+
+static void *EscThread(void *arg)
+{
+    struct pollfd pfd[MAX_EV];
+    int i, n;
+    (void)arg;
+    OpenKeyboards();
+    n = g_nevf;
+    if (n <= 0)
+        return NULL;
+    for (i = 0; i < n; i++)
+    {
+        pfd[i].fd = g_evfd[i];
+        pfd[i].events = POLLIN;
+    }
+    Dlog("esc thread n=%d", n);
+    for (;;)
+    {
+        if (poll(pfd, (nfds_t)n, -1) <= 0)
+            continue;
+        for (i = 0; i < n; i++)
+        {
+            struct input_event ev;
+            if (!(pfd[i].revents & POLLIN))
+                continue;
+            while (read(g_evfd[i], &ev, sizeof(ev)) == (ssize_t)sizeof(ev))
+            {
+                if (ev.type == EV_KEY && ev.code == KEY_ESC && ev.value == 1)
+                    NoteEsc();
+            }
+        }
+    }
+    return NULL;
+}
+
+static void StartEscThread(void)
+{
+    static int started;
+    pthread_t th;
+    if (started)
+        return;
+    started = 1;
+    if (pthread_create(&th, NULL, EscThread, NULL) == 0)
+        pthread_detach(th);
+}
+
+static void GrabEsc(Display *d, int on)
+{
+    KeyCode kc = XKeysymToKeycode(d, XK_Escape);
+    if (!kc)
+        return;
+    Window root = DefaultRootWindow(d);
+    if (on && !g_esc_grab)
+    {
+        XGrabKey(d, kc, AnyModifier, root, True, GrabModeAsync, GrabModeAsync);
+        g_esc_grab = 1;
+        Dlog("esc grab");
+    }
+    else if (!on && g_esc_grab)
+    {
+        XUngrabKey(d, kc, AnyModifier, root);
+        g_esc_grab = 0;
+        Dlog("esc ungrab");
+    }
+    XFlush(d);
+}
+
+int Island_WantQuit(void)
+{
+    PollEsc();
+    int q = g_want_quit;
+    g_want_quit = 0;
+    return q;
 }
 
 int Island_Overlay(int x, int y, int w, int h)
@@ -507,6 +677,8 @@ int Island_Overlay(int x, int y, int w, int h)
     else
         XMoveResizeWindow(d, g_drop, x, y, (unsigned)w, (unsigned)h);
     XMapRaised(d, g_drop);
+    if (g_win)
+        XSetInputFocus(d, g_win, RevertToParent, CurrentTime);
     XFlush(d);
     return 1;
 }
@@ -547,6 +719,82 @@ static int ReadUriProp(Display *d, Window w, Atom prop, char *buf, int n)
     buf[copy] = 0;
     XFree(data);
     return copy;
+}
+
+static void SyncLive(void)
+{
+    g_drag_live = g_xdnd_owner || g_xi_drag;
+}
+
+static int RootXY(Display *d, int *x, int *y)
+{
+    Window root, child;
+    int rx, ry, wx, wy;
+    unsigned mask;
+    if (!XQueryPointer(d, DefaultRootWindow(d), &root, &child, &rx, &ry, &wx, &wy, &mask))
+        return 0;
+    *x = rx;
+    *y = ry;
+    return 1;
+}
+
+static void EnsureXI2(Display *d)
+{
+    if (g_xi_opcode != -1)
+        return;
+    int ev = 0, err = 0;
+    if (!XQueryExtension(d, "XInputExtension", &g_xi_opcode, &ev, &err))
+    {
+        g_xi_opcode = -2;
+        Dlog("xi2 missing");
+        return;
+    }
+    int major = 2, minor = 0;
+    if (XIQueryVersion(d, &major, &minor) != 0)
+    {
+        g_xi_opcode = -2;
+        Dlog("xi2 version");
+        return;
+    }
+    unsigned char mask[XIMaskLen(XI_RawMotion) + 1];
+    memset(mask, 0, sizeof(mask));
+    XISetMask(mask, XI_RawButtonPress);
+    XISetMask(mask, XI_RawButtonRelease);
+    XISetMask(mask, XI_RawMotion);
+    XIEventMask em;
+    em.deviceid = XIAllMasterDevices;
+    em.mask_len = (int)sizeof(mask);
+    em.mask = mask;
+    XISelectEvents(d, DefaultRootWindow(d), &em, 1);
+    XFlush(d);
+    Dlog("xi2 opcode=%d %d.%d", g_xi_opcode, major, minor);
+}
+
+int Island_ArmEdge(int x, int y, int w, int h)
+{
+    Display *d = Dpy();
+    if (!d || w <= 0 || h <= 0)
+        return 0;
+    int i = (x <= 64) ? 0 : 1;
+    Window root = DefaultRootWindow(d);
+    if (!g_edge[i])
+    {
+        g_edge[i] = CreateDrop(d, root, x, y, w, h);
+        if (!g_edge[i])
+            return 0;
+        XStoreName(d, g_edge[i], i ? "island-edge-r" : "island-edge-l");
+        Dlog("edge%d 0x%lx %dx%d+%d+%d", i, (unsigned long)g_edge[i], w, h, x, y);
+    }
+    else
+        XMoveResizeWindow(d, g_edge[i], x, y, (unsigned)w, (unsigned)h);
+    XMapRaised(d, g_edge[i]);
+    XFlush(d);
+    return 1;
+}
+
+static int IsOurs(Window w)
+{
+    return w && (w == g_drop || w == g_edge[0] || w == g_edge[1] || w == g_fix);
 }
 
 static void EnsureFixes(Display *d)
@@ -642,19 +890,103 @@ int Island_XdndPoll(char *buf, int n)
     Atom drop = XInternAtom(d, "XdndDrop", False);
     Atom action = XInternAtom(d, "XdndActionCopy", False);
     Atom dest = XInternAtom(d, "ISLAND_DROP", False);
+
+    /* XWayland does not deliver XI2-raw for a Wayland Files drag. The
+       compositor still mirrors the pointer+buttons into XQueryPointer. */
+    {
+        int x, y;
+        Window root, child;
+        int wx, wy;
+        unsigned mask = 0;
+        if (XQueryPointer(d, DefaultRootWindow(d), &root, &child, &x, &y, &wx, &wy, &mask))
+        {
+            int b1 = (mask & Button1Mask) != 0;
+            if (b1 && !g_btn1)
+            {
+                g_btn1 = 1;
+                g_press_x = x;
+                g_press_y = y;
+            }
+            else if (b1 && g_btn1 && !g_xi_drag)
+            {
+                int dx = x - g_press_x;
+                int dy = y - g_press_y;
+                if (dx * dx + dy * dy >= 16 * 16)
+                {
+                    g_xi_drag = 1;
+                    SyncLive();
+                    Dlog("ptr drag %d,%d mask=0x%x live=%d", x, y, mask, g_drag_live);
+                }
+            }
+            else if (!b1 && g_btn1)
+            {
+                g_btn1 = 0;
+                g_xi_drag = 0;
+                SyncLive();
+            }
+        }
+    }
+
     while (XPending(d))
     {
         XEvent ev;
         XNextEvent(d, &ev);
+        if (ev.type == KeyPress)
+        {
+            KeySym ks = XLookupKeysym(&ev.xkey, 0);
+            if (ks == XK_Escape)
+            {
+                g_want_quit = 1;
+                Dlog("esc");
+            }
+            continue;
+        }
         if (g_fixes_base >= 0 && ev.type == g_fixes_base + XFixesSelectionNotify)
         {
             XFixesSelectionNotifyEvent *fe = (XFixesSelectionNotifyEvent *)&ev;
-            g_drag_live = fe->owner != 0;
+            g_xdnd_owner = fe->owner != 0;
+            SyncLive();
             Dlog("fixes subtype=%d owner=0x%lx ts=%lu live=%d",
                  fe->subtype, (unsigned long)fe->owner,
                  (unsigned long)fe->timestamp, g_drag_live);
-            if (g_drag_live)
+            if (g_xdnd_owner)
                 RequestUris(d, g_fix, fe->timestamp);
+            continue;
+        }
+        if (ev.type == GenericEvent && g_xi_opcode >= 0 &&
+            ev.xcookie.extension == g_xi_opcode)
+        {
+            if (XGetEventData(d, &ev.xcookie) && ev.xcookie.data)
+            {
+                XIRawEvent *raw = (XIRawEvent *)ev.xcookie.data;
+                if (raw->evtype == XI_RawButtonPress && raw->detail == 1)
+                {
+                    g_btn1 = 1;
+                    RootXY(d, &g_press_x, &g_press_y);
+                }
+                else if (raw->evtype == XI_RawButtonRelease && raw->detail == 1)
+                {
+                    g_btn1 = 0;
+                    g_xi_drag = 0;
+                    SyncLive();
+                }
+                else if (raw->evtype == XI_RawMotion && g_btn1 && !g_xi_drag)
+                {
+                    int x, y;
+                    if (RootXY(d, &x, &y))
+                    {
+                        int dx = x - g_press_x;
+                        int dy = y - g_press_y;
+                        if (dx * dx + dy * dy >= 16 * 16)
+                        {
+                            g_xi_drag = 1;
+                            SyncLive();
+                            Dlog("xi drag %d,%d live=%d", x, y, g_drag_live);
+                        }
+                    }
+                }
+            }
+            XFreeEventData(d, &ev.xcookie);
             continue;
         }
         if (ev.type == SelectionNotify)
@@ -683,31 +1015,38 @@ int Island_XdndPoll(char *buf, int n)
             continue;
         if (ev.xclient.message_type == enter)
         {
+            Window hit = ev.xclient.window;
             g_xdnd_source = (Window)ev.xclient.data.l[0];
-            g_drag_live = 1;
-            Dlog("enter src=0x%lx flags=0x%lx", (unsigned long)g_xdnd_source,
+            g_xdnd_owner = 1;
+            SyncLive();
+            Dlog("enter src=0x%lx hit=0x%lx flags=0x%lx",
+                 (unsigned long)g_xdnd_source, (unsigned long)hit,
                  (unsigned long)ev.xclient.data.l[1]);
-            if (g_drop)
-                RequestUris(d, g_drop, 0);
+            if (IsOurs(hit))
+                RequestUris(d, hit, 0);
         }
         else if (ev.xclient.message_type == pos)
         {
+            Window hit = ev.xclient.window;
             g_xdnd_source = (Window)ev.xclient.data.l[0];
-            g_drag_live = 1;
-            if (g_drop)
+            g_xdnd_owner = 1;
+            SyncLive();
+            if (IsOurs(hit))
             {
-                SendXdnd(d, g_xdnd_source, "XdndStatus", g_drop, 1 | 2, 0, 0, (long)action);
+                SendXdnd(d, g_xdnd_source, "XdndStatus", hit, 1 | 2, 0, 0, (long)action);
                 XFlush(d);
             }
         }
         else if (ev.xclient.message_type == drop)
         {
+            Window hit = ev.xclient.window;
             g_xdnd_source = (Window)ev.xclient.data.l[0];
             g_need_finished = 1;
             unsigned long ts = (unsigned long)ev.xclient.data.l[2];
-            Dlog("drop src=0x%lx ts=%lu", (unsigned long)g_xdnd_source, ts);
-            if (g_drop)
-                RequestUris(d, g_drop, ts);
+            Dlog("drop src=0x%lx hit=0x%lx ts=%lu",
+                 (unsigned long)g_xdnd_source, (unsigned long)hit, ts);
+            if (IsOurs(hit))
+                RequestUris(d, hit, ts);
             else
                 FinishOk(d, 0);
         }

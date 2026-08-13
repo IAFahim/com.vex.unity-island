@@ -86,4 +86,18 @@ public class IslandLayoutTests
         Assert.AreEqual("notes.md", IslandWindow.DecodeFileToken("notes.md"));
         Assert.AreEqual("", IslandWindow.DecodeFileToken("# comment"));
     }
+
+    [Test]
+    public void Dismiss_HidesAndClearsFiles()
+    {
+        var h = new IslandHost();
+        h.ShowFiles(new[] { "/tmp/a.png" });
+        Assert.IsTrue(h.Visible);
+        Assert.AreEqual(IslandMode.Files, h.Mode);
+        Assert.AreEqual(1, h.Files.Count);
+        h.Dismiss();
+        Assert.IsFalse(h.Visible);
+        Assert.AreEqual(IslandMode.Idle, h.Mode);
+        Assert.AreEqual(0, h.Files.Count);
+    }
 }

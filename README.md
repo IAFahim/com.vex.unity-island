@@ -26,7 +26,7 @@ Idle on this machine: **~390 MB RSS / ~311 MB PSS, ~2.6% of one core, 22 MB VRAM
 - **Mode** — idle clock, or “N files” when something selected files
 - **IPC** — `127.0.0.1:17321` (works on Windows later too)
 
-Starts **hidden at 1 fps**. Drag a selected file in Files/Nautilus and the pill slides out with the name. Drop or release and it hides again. Esc still quits.
+Starts **hidden**. Drag a file and the pill snaps to the outer edge with the name. Drop or release and it hides. Esc still quits.
 
 ```bash
 ./scripts/run-island.sh
@@ -35,7 +35,7 @@ Starts **hidden at 1 fps**. Drag a selected file in Files/Nautilus and the pill 
 ./scripts/island-ctl.sh hide
 ```
 
-`scripts/island-watch.py` (started by the player) watches X11 button-drag + AT-SPI selection in Nautilus/Files. Native Wayland file managers work if accessibility is on.
+Drag-start is an XFixes event in the player (`XdndSelection`). `scripts/island-watch.py` is optional AT-SPI, not started by the player.
 
 ## Build
 

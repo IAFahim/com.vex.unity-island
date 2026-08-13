@@ -99,6 +99,14 @@ namespace Vex.Island
             Changed?.Invoke();
         }
 
+        public void Dismiss()
+        {
+            _files.Clear();
+            Mode = IslandMode.Idle;
+            Visible = false;
+            Changed?.Invoke();
+        }
+
         public void PickOuterEdge(IslandRect[] screens, int pointerX)
         {
             Edge = IslandLayout.NearerOuter(screens, pointerX);

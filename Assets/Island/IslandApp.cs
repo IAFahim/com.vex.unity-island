@@ -20,6 +20,7 @@ namespace Vex.Island
         float _nextClock;
         bool _dragging;
         bool _dirty;
+        bool _dragSession;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
@@ -72,19 +73,32 @@ namespace Vex.Island
             }
 
             var dropped = IslandWindow.PollDrop();
+            var live = IslandWindow.DragLive();
             if (dropped != null && dropped.Length > 0)
             {
                 _host.ShowFiles(dropped);
                 RememberDrop(dropped);
+                _dragSession = true;
                 Paint();
                 Snap(true);
                 _dirty = false;
             }
-            else if (IslandWindow.DragLive() && !_host.Visible)
+            else if (live && !_host.Visible)
             {
                 _host.Reveal();
+                _dragSession = true;
                 Paint();
                 Snap(true);
+                _dirty = false;
+            }
+            else if (_dragSession && !live)
+            {
+                // Drop or cancel: put it away. Keep this frame if we just
+                // painted a name from the same poll.
+                _host.Dismiss();
+                _dragSession = false;
+                Paint();
+                Snap(false);
                 _dirty = false;
             }
 

@@ -1,13 +1,31 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
     <Style src="Island.uss" />
     <ui:VisualElement name="root" class="root">
-        <ui:VisualElement name="pill" class="pill">
-            <ui:VisualElement name="left" class="left">
-                <ui:VisualElement name="dot" class="dot" />
-                <ui:Label name="status" text="boot" class="meta" />
+        <ui:VisualElement name="scrim" class="scrim" />
+        <ui:VisualElement name="stage" class="stage">
+            <ui:VisualElement name="pill" class="pill">
+                <ui:VisualElement name="left" class="left">
+                    <ui:VisualElement name="dot" class="dot" />
+                    <ui:Label name="status" text="boot" class="meta" />
+                </ui:VisualElement>
+                <ui:Label name="clock" text="--:--:--" class="clock" />
+                <ui:Label name="brand" text="Island" class="meta brand" />
             </ui:VisualElement>
-            <ui:Label name="clock" text="--:--:--" class="clock" />
-            <ui:Label name="brand" text="Island" class="meta brand" />
+            <ui:VisualElement name="bench" class="bench">
+                <ui:Label name="bench-kicker" text="Speak" class="kicker" />
+                <ui:VisualElement name="bench-preview" class="preview" />
+                <ui:Label name="bench-count" text="" class="count" />
+                <ui:Label name="bench-line" text="Select text, then wiggle." class="line" />
+                <ui:Button name="bench-act" text="Read" class="act" />
+                <ui:VisualElement name="bench-speak" class="pane">
+                    <ui:VisualElement name="bench-mix" class="mix" />
+                    <ui:Label text="Voice" class="sec" />
+                    <ui:VisualElement name="bench-voice" class="chips" />
+                    <ui:Label text="Wiggle" class="sec" />
+                    <ui:VisualElement name="bench-feel" class="chips" />
+                </ui:VisualElement>
+                <ui:VisualElement name="bench-photo" class="pane" />
+            </ui:VisualElement>
         </ui:VisualElement>
     </ui:VisualElement>
 </ui:UXML>

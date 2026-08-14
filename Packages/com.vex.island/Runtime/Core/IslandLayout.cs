@@ -143,6 +143,45 @@ namespace Vex.Island
             return new IslandPlacement(x, y, edge, bound);
         }
 
+        public static int ClampY(IslandRect bound, int y, int height, int margin)
+        {
+            var lo = bound.Y + margin;
+            var hi = bound.Y + bound.H - height - margin;
+            if (hi < lo)
+                return lo;
+            if (y < lo)
+                return lo;
+            if (y > hi)
+                return hi;
+            return y;
+        }
+
+        /// <summary>
+        /// Same X dock as <see cref="Dock"/>, but Y follows the grab
+        /// (pointerY - hotY) instead of recentering on the monitor.
+        /// </summary>
+        public static IslandPlacement Along(
+            IslandRect[] screens,
+            int pointerX,
+            int pointerY,
+            int hotY,
+            IslandEdge edge,
+            IslandSpan span,
+            int width,
+            int height,
+            int margin)
+        {
+            var dock = Dock(screens, pointerX, pointerY, edge, span, width, height, margin);
+            var y = ClampY(dock.Bound, pointerY - hotY, height, margin);
+            return new IslandPlacement(dock.X, y, dock.Edge, dock.Bound);
+        }
+
+        public static void Inside(IslandRect bound, int worldX, int worldY, out int localX, out int localY)
+        {
+            localX = worldX - bound.X;
+            localY = worldY - bound.Y;
+        }
+
         public static IslandRect Leftmost(IslandRect[] screens)
         {
             var best = screens[0];

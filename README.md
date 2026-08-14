@@ -1,6 +1,6 @@
 # Island
 
-A small Unity standalone: 420×88 borderless pill that docks to a screen edge.
+A small Unity standalone: a 380×420 borderless capsule that docks to a screen edge. Architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 UI Toolkit only. No world camera. No URP.
 
@@ -28,9 +28,7 @@ Everything lives in `Packages/com.vex.island`. Assemblies do not share one dump:
 | `Vex.Island.Linux` / `.Windows` / `.OSX` | One chrome each. `#if UNITY_STANDALONE_* && !UNITY_EDITOR` registers it |
 | `Vex.Island.Editor` | Player settings + Linux/Windows/macOS build menu |
 
-NuGet libs (Excel, XML, images, …) go through **NuGetForUnity** so we do not write parsers. Prefer `netstandard2.1` packages until Unity CoreCLR is the player runtime.
-
-NuGet libs (Excel, XML, images, …) go through **NuGetForUnity** so we do not write parsers. Prefer `netstandard2.1` packages until Unity CoreCLR is the player runtime.
+NuGet libs (Excel, XML, images, …) go through **NuGetForUnity**. Prefer `netstandard2.1` until Unity CoreCLR is the player runtime.
 
 | | |
 |---|---|
@@ -44,6 +42,7 @@ NuGet libs (Excel, XML, images, …) go through **NuGetForUnity** so we do not w
 - **Span** — monitor under the cursor, primary, or the whole virtual desktop (outer edge of all screens)
 - **Offers** — `IIslandOffer` classifies by extension (image / sheet / xml / text / audio / video). First offer that accepts every file wins; mixed otherwise. Register more from any assembly.
 - **Process** — `island-ctl.sh process` runs the offer hook (default `id:count`) and writes `note=` on the card.
+- **Speak** — same route as ReadAloud: select text, wiggle. Island peeks and reads. Click the pill for the bench (speed, pitch, volume, voice, wiggle feel) — writes `~/.config/readaloud/settings.json`. Esc closes the bench, then the pill. Quit the old ReadAloud tray or both will fire.
 - **Files** — one island holds many paths (`FILES` replace, `ADD` append)
 - **Instances** — one process = one pill. Ports `17321`–`17328`. Cards in `$XDG_RUNTIME_DIR/island/`
 - **IPC** — `127.0.0.1:<port>` (`island-ctl.sh -p` / `-i` / `--all` / `list` / `spawn` / `process` / `context`)

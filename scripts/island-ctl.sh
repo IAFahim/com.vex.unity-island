@@ -3,6 +3,8 @@
 #   island-ctl.sh files /tmp/a.png /tmp/b.md
 #   island-ctl.sh add /tmp/c.md
 #   island-ctl.sh process
+#   island-ctl.sh speak
+#   island-ctl.sh stop
 #   island-ctl.sh context
 #   island-ctl.sh -p 17322 files /tmp/a.png
 #   island-ctl.sh -i i17321 hide
@@ -22,14 +24,15 @@ while [[ $# -gt 0 && "$1" == -* ]]; do
     -i|--id) ID="$2"; shift 2 ;;
     -a|--all) ALL=1; shift ;;
     -h|--help)
-      echo "usage: $0 [-p PORT|-i ID|--all] files|add <paths...> | process|context|note | show|hide|toggle|idle|quit | edge EDGE | span SPAN | list | spawn" >&2
+      echo "usage: $0 [-p PORT|-i ID|--all] files|add <paths...> | process|speak|stop|context|note | show|hide|toggle|idle|quit | edge EDGE | span SPAN | list | spawn" >&2
+      echo "  image paths open the photo bench (date / light / stamp). process writes copies." >&2
       exit 0 ;;
     *) break ;;
   esac
 done
 
 if [[ $# -lt 1 ]]; then
-  echo "usage: $0 [-p PORT|-i ID|--all] files|add <paths...> | process|context|note | show|hide|toggle|idle|quit | edge EDGE | span SPAN | list | spawn" >&2
+  echo "usage: $0 [-p PORT|-i ID|--all] files|add <paths...> | process|speak|stop|context|note | show|hide|toggle|idle|quit | edge EDGE | span SPAN | list | spawn" >&2
   exit 2
 fi
 
@@ -72,10 +75,23 @@ if [[ "$cmd" == "SPAWN" ]]; then
   exit 0
 fi
 
+encode() {
+  python3 -c 'import sys,urllib.parse; print("file://"+urllib.parse.quote(sys.argv[1]))' "$1"
+}
+
 case "$cmd" in
-  FILES) line="FILES $*" ;;
-  ADD) line="ADD $*" ;;
-  SHOW|HIDE|TOGGLE|IDLE|QUIT|PROCESS|CONTEXT|NOTE) line="$cmd" ;;
+  FILES)
+    toks=()
+    for p in "$@"; do toks+=("$(encode "$p")"); done
+    line="FILES ${toks[*]}"
+    ;;
+  ADD)
+    toks=()
+    for p in "$@"; do toks+=("$(encode "$p")"); done
+    line="ADD ${toks[*]}"
+    ;;
+  SHOW|HIDE|TOGGLE|IDLE|QUIT|PROCESS|CONTEXT|NOTE|STOP) line="$cmd" ;;
+  SPEAK) line="SPEAK $*" ;;
   EDGE|SPAN)
     [[ $# -ge 1 ]] || { echo "missing arg" >&2; exit 2; }
     line="$cmd $1" ;;

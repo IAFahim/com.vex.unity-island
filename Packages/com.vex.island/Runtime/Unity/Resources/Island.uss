@@ -1,10 +1,52 @@
 .root {
     flex-grow: 1;
-    align-items: center;
-    justify-content: center;
+    align-items: stretch;
+    justify-content: flex-start;
     background-color: rgba(0, 0, 0, 0);
     width: 100%;
     height: 100%;
+    position: relative;
+}
+
+.scrim {
+    display: none;
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(6, 4, 8, 0.56);
+    border-width: 2px;
+    border-color: rgba(240, 180, 90, 0.22);
+}
+
+.root.takeover .scrim {
+    display: flex;
+}
+
+.root.cover .stage {
+    position: absolute;
+    width: 380px;
+    height: 420px;
+}
+
+.stage {
+    flex-direction: row;
+    flex-grow: 1;
+    align-items: stretch;
+    background-color: rgba(22, 16, 10, 0.92);
+    border-radius: 28px;
+    border-width: 1px;
+    border-color: rgba(240, 180, 90, 0.22);
+}
+
+.stage.right {
+    flex-direction: row-reverse;
+}
+
+.stage.closed {
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
 }
 
 .pill {
@@ -21,6 +63,17 @@
     border-radius: 28px;
     border-width: 1px;
     border-color: rgba(255, 255, 255, 0.14);
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.pill:hover {
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+.stage.open .pill {
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
 }
 
 .left {
@@ -43,16 +96,24 @@
     flex-grow: 1;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    font-size: 14px;
+    font-size: 13px;
     color: rgb(255, 255, 255);
     width: 68px;
-    white-space: normal;
+    max-width: 68px;
+    overflow: hidden;
+    white-space: nowrap;
+    -unity-text-overflow: ellipsis;
 }
 
 .meta {
     font-size: 11px;
     color: rgb(209, 214, 224);
     -unity-text-align: middle-center;
+    width: 68px;
+    max-width: 68px;
+    overflow: hidden;
+    white-space: nowrap;
+    -unity-text-overflow: ellipsis;
 }
 
 .brand {
@@ -66,6 +127,10 @@
     border-color: rgba(255, 176, 200, 0.28);
 }
 
+.pill.files:hover {
+    border-color: rgba(255, 176, 200, 0.48);
+}
+
 .dot.files {
     background-color: rgb(255, 168, 196);
 }
@@ -73,6 +138,10 @@
 .pill.image {
     background-color: rgba(22, 28, 36, 0.90);
     border-color: rgba(140, 190, 255, 0.28);
+}
+
+.pill.image:hover {
+    border-color: rgba(140, 190, 255, 0.48);
 }
 
 .dot.image {
@@ -84,6 +153,10 @@
     border-color: rgba(220, 200, 120, 0.28);
 }
 
+.pill.text:hover {
+    border-color: rgba(220, 200, 120, 0.48);
+}
+
 .dot.text {
     background-color: rgb(230, 210, 120);
 }
@@ -91,6 +164,10 @@
 .pill.audio {
     background-color: rgba(28, 22, 32, 0.90);
     border-color: rgba(200, 150, 255, 0.28);
+}
+
+.pill.audio:hover {
+    border-color: rgba(200, 150, 255, 0.48);
 }
 
 .dot.audio {
@@ -102,6 +179,10 @@
     border-color: rgba(255, 140, 140, 0.28);
 }
 
+.pill.video:hover {
+    border-color: rgba(255, 140, 140, 0.48);
+}
+
 .dot.video {
     background-color: rgb(255, 140, 140);
 }
@@ -109,6 +190,10 @@
 .pill.sheet {
     background-color: rgba(18, 32, 24, 0.90);
     border-color: rgba(120, 210, 150, 0.28);
+}
+
+.pill.sheet:hover {
+    border-color: rgba(120, 210, 150, 0.48);
 }
 
 .dot.sheet {
@@ -120,6 +205,341 @@
     border-color: rgba(100, 210, 200, 0.28);
 }
 
+.pill.xml:hover {
+    border-color: rgba(100, 210, 200, 0.48);
+}
+
 .dot.xml {
     background-color: rgb(90, 210, 200);
+}
+
+.pill.speak {
+    background-color: rgba(36, 26, 14, 0.90);
+    border-color: rgba(240, 180, 90, 0.32);
+}
+
+.pill.speak:hover {
+    border-color: rgba(240, 180, 90, 0.52);
+}
+
+.dot.speak {
+    background-color: rgb(240, 176, 80);
+}
+
+.bench {
+    display: none;
+    flex-direction: column;
+    width: 292px;
+    min-width: 292px;
+    flex-shrink: 0;
+    padding-top: 16px;
+    padding-bottom: 14px;
+    padding-left: 14px;
+    padding-right: 14px;
+}
+
+.stage.open .bench {
+    display: flex;
+}
+
+.kicker {
+    font-size: 10px;
+    color: rgb(184, 150, 96);
+    -unity-font-style: bold;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+}
+
+.line {
+    font-size: 13px;
+    color: rgb(236, 228, 214);
+    white-space: normal;
+    margin-bottom: 12px;
+    min-height: 36px;
+}
+
+Button {
+    background-image: none;
+    min-width: 0;
+}
+
+Button.act {
+    height: 32px;
+    margin-bottom: 14px;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 10px;
+    padding-right: 10px;
+    background-image: none;
+    background-color: rgba(240, 176, 80, 0.18);
+    border-width: 1px;
+    border-color: rgba(240, 176, 80, 0.40);
+    border-radius: 8px;
+    color: rgb(246, 214, 150);
+    font-size: 13px;
+    -unity-text-align: middle-center;
+}
+
+.act:hover {
+    background-color: rgba(240, 176, 80, 0.26);
+}
+
+.act:active {
+    background-color: rgba(240, 176, 80, 0.34);
+}
+
+.mix {
+    flex-direction: column;
+    margin-bottom: 14px;
+}
+
+.row {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.row-name {
+    width: 52px;
+    font-size: 11px;
+    color: rgb(168, 156, 140);
+}
+
+.row-val {
+    width: 40px;
+    font-size: 11px;
+    color: rgb(236, 228, 214);
+    -unity-text-align: middle-right;
+}
+
+.row Slider,
+.row .unity-base-slider {
+    flex-grow: 1;
+    height: 18px;
+    min-width: 90px;
+    margin-left: 6px;
+    margin-right: 6px;
+}
+
+.row .unity-base-slider__tracker {
+    background-image: none;
+    background-color: rgba(255, 255, 255, 0.08);
+    height: 3px;
+    border-width: 0;
+    border-radius: 2px;
+}
+
+.row .unity-base-slider__dragger,
+.row .unity-base-slider__dragger-border {
+    width: 12px;
+    height: 12px;
+    margin-top: -5px;
+    background-image: none;
+    background-color: rgb(246, 214, 150);
+    border-top-width: 0;
+    border-bottom-width: 0;
+    border-left-width: 0;
+    border-right-width: 0;
+    border-radius: 6px;
+}
+
+.row .unity-base-slider__dragger-border {
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.stage.photo .row .unity-base-slider__dragger {
+    background-color: rgb(186, 214, 255);
+}
+
+.sec {
+    font-size: 10px;
+    color: rgb(184, 150, 96);
+    margin-top: 4px;
+    margin-bottom: 6px;
+}
+
+.chips {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+Button.chip {
+    height: 24px;
+    min-width: 0;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    padding-left: 8px;
+    padding-right: 8px;
+    background-image: none;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    color: rgb(196, 184, 168);
+    font-size: 11px;
+    -unity-text-align: middle-center;
+}
+
+Button.chip:hover {
+    background-color: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.20);
+}
+
+Button.chip:active {
+    background-color: rgba(255, 255, 255, 0.14);
+}
+
+Button.chip.on {
+    background-color: rgba(240, 176, 80, 0.18);
+    border-color: rgba(240, 176, 80, 0.40);
+    color: rgb(246, 214, 150);
+}
+
+.preview {
+    display: none;
+    position: relative;
+    height: 118px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    background-color: rgba(6, 9, 14, 0.96);
+    border-width: 1px;
+    border-color: rgba(140, 190, 255, 0.18);
+    overflow: hidden;
+    align-items: stretch;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.stage.photo .preview {
+    display: flex;
+}
+
+.count {
+    display: none;
+    font-size: 10px;
+    color: rgb(148, 176, 214);
+    -unity-text-align: middle-right;
+    margin-bottom: 2px;
+}
+
+.stage.photo .count.show {
+    display: flex;
+}
+
+.pane {
+    flex-direction: column;
+}
+
+.when {
+    flex-direction: column;
+    margin-bottom: 4px;
+}
+
+.named {
+    flex-direction: column;
+    margin-bottom: 6px;
+}
+
+.named .sec {
+    margin-top: 0;
+}
+
+.field {
+    flex-grow: 1;
+    height: 26px;
+    min-height: 26px;
+    margin-right: 6px;
+    margin-left: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-left: 0;
+    padding-right: 0;
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+}
+
+.field > .unity-base-field__label {
+    display: none;
+    width: 0;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+}
+
+.field > .unity-base-field__input,
+.field .unity-text-field__input,
+.field .unity-base-text-field__input {
+    background-image: none;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.10);
+    border-radius: 6px;
+    color: rgb(236, 228, 214);
+    font-size: 11px;
+    margin: 0;
+    padding-top: 3px;
+    padding-bottom: 3px;
+    padding-left: 8px;
+    padding-right: 8px;
+    min-height: 26px;
+    height: 26px;
+}
+
+.field:hover > .unity-base-field__input,
+.field .unity-text-field__input:hover,
+.field .unity-base-text-field__input:hover {
+    border-color: rgba(255, 255, 255, 0.20);
+}
+
+.field:focus > .unity-base-field__input,
+.field .unity-base-text-field__input:focus {
+    border-color: rgba(240, 176, 80, 0.45);
+}
+
+.stage.photo .field:focus > .unity-base-field__input,
+.stage.photo .field .unity-base-text-field__input:focus {
+    border-color: rgba(130, 190, 255, 0.50);
+}
+
+.empty {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    font-size: 11px;
+    color: rgb(120, 140, 168);
+    -unity-text-align: middle-center;
+}
+
+.shot {
+    flex-grow: 1;
+}
+
+.stage.photo .kicker {
+    color: rgb(148, 176, 214);
+}
+
+.stage.photo .line {
+    min-height: 20px;
+    margin-bottom: 8px;
+}
+
+.stage.photo Button.act {
+    margin-top: auto;
+    margin-bottom: 0;
+    background-color: rgba(130, 190, 255, 0.16);
+    border-color: rgba(130, 190, 255, 0.38);
+    color: rgb(198, 220, 255);
+}
+
+.stage.photo Button.act:hover {
+    background-color: rgba(130, 190, 255, 0.26);
+}
+
+.stage.photo Button.chip.on {
+    background-color: rgba(130, 190, 255, 0.16);
+    border-color: rgba(130, 190, 255, 0.40);
+    color: rgb(198, 220, 255);
 }

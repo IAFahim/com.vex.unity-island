@@ -11,14 +11,11 @@ namespace Vex.Island
     public enum IslandMode
     {
         Idle,
-        Files
+        Files,
+        Speak,
+        Photo
     }
 
-    /// <summary>
-    /// One island process: many files, one pill. More pills = more processes.
-    /// Binds 17321+ and writes $XDG_RUNTIME_DIR/island/&lt;id&gt; so ctl can
-    /// address any live instance.
-    /// </summary>
     public sealed class IslandHost
     {
         public const int PortBase = 17321;
@@ -26,18 +23,37 @@ namespace Vex.Island
 
         public string Id { get; private set; } = "";
         public int Port { get; private set; } = PortBase;
-        public IslandMode Mode { get; private set; } = IslandMode.Idle;
-        public IslandEdge Edge { get; private set; } = IslandEdge.Left;
-        public IslandSpan Span { get; private set; } = IslandSpan.VirtualDesktop;
-        public bool Visible { get; private set; }
+        public IslandFrame Frame { get; private set; } =
+            IslandKernel.Idle(IslandEdge.Left, int.MinValue, IslandSpan.VirtualDesktop);
+        public IslandMode Mode => Frame.Mode;
+        public IslandEdge Edge
+        {
+            get => Frame.Edge;
+            set => Commit(IslandKernel.Pose(Frame, value, Frame.SlideY));
+        }
+        public int SlideY
+        {
+            get => Frame.SlideY;
+            set => Commit(IslandKernel.Pose(Frame, Frame.Edge, value));
+        }
+        public IslandSpan Span => Frame.Span;
+        public bool Visible => Frame.Visible;
         public bool ShouldQuit { get; private set; }
-        public IReadOnlyList<string> Files => _files;
-        public IslandContext Context { get; private set; }
-        public string LastNote { get; private set; } = "";
+        public IReadOnlyList<string> Files => Frame.Files;
+        public IslandContext Context => Frame.Context;
+        public string LastNote => Frame.Note;
+        public string Line
+        {
+            get => Frame.Line;
+            set
+            {
+                if (Frame.Line == value)
+                    return;
+                Commit(IslandKernel.Noted(Frame, Frame.Note, value));
+            }
+        }
 
         public event Action Changed;
-
-        readonly List<string> _files = new List<string>();
         readonly object _gate = new object();
         readonly List<string> _inbox = new List<string>();
         TcpListener _listen;
@@ -104,85 +120,153 @@ namespace Vex.Island
             Changed?.Invoke();
         }
 
+        void Commit(IslandFrame next)
+        {
+            Frame = next;
+            WriteCard();
+            Changed?.Invoke();
+        }
+
         public void ShowFiles(IEnumerable<string> paths)
         {
-            _files.Clear();
-            if (paths != null)
-            {
-                foreach (var p in paths)
-                {
-                    if (!string.IsNullOrWhiteSpace(p))
-                        _files.Add(p.Trim());
-                }
-            }
-
-            TouchFiles();
+            BindWork(IslandKernel.Hold(Frame, IslandKernel.Normalize(AsList(paths))));
         }
 
         public void AddFiles(IEnumerable<string> paths)
         {
-            if (paths != null)
+            var next = IslandKernel.Append(Frame.Files, AsList(paths));
+            if (next.Length == 0)
+                return;
+            BindWork(IslandKernel.Hold(Frame, next));
+        }
+
+        void BindWork(IslandFrame held)
+        {
+            if (held.Context.Kind != IslandKind.Image)
+                IslandPhoto.Current.Clear();
+            else
             {
-                foreach (var raw in paths)
-                {
-                    if (string.IsNullOrWhiteSpace(raw))
-                        continue;
-                    var p = raw.Trim();
-                    if (!_files.Contains(p))
-                        _files.Add(p);
-                }
+                IslandPhoto.Current.Bind(held.Files);
+                held = IslandKernel.Noted(held, "", IslandPhoto.Current.StampLine());
             }
 
-            if (_files.Count == 0)
-                return;
-            TouchFiles();
+            Commit(held);
         }
 
         public string ProcessFiles()
         {
-            LastNote = IslandOffers.Process(_files);
-            WriteCard();
-            Changed?.Invoke();
-            return LastNote;
+            var note = IslandOffers.Process(Frame.Files);
+            var line = Frame.Context.Kind == IslandKind.Image
+                ? IslandPhoto.Current.ResultLine()
+                : Frame.Line;
+            Commit(IslandKernel.Noted(Frame, note, line));
+            return note;
         }
 
-        void TouchFiles()
+        public string Act()
         {
-            LastNote = "";
-            Mode = _files.Count > 0 ? IslandMode.Files : IslandMode.Idle;
-            Visible = _files.Count > 0;
-            Context = IslandOffers.Read(_files);
-            WriteCard();
-            Changed?.Invoke();
+            if (IslandSpeak.IsLive)
+                return SpeakNow("");
+            if (Frame.Context.Kind == IslandKind.Speak)
+                return SpeakNow(IslandSpeak.Selection());
+            return ProcessFiles();
+        }
+
+        public string SpeakNow(string text)
+        {
+            text = IslandSpeak.Clean(text);
+            if (text.Length == 0)
+            {
+                var note = IslandSpeak.IsLive ? IslandSpeak.Stop() : "empty";
+                Commit(IslandKernel.Noted(Frame, note, Frame.Line));
+                return note;
+            }
+
+            var spoken = IslandSpeak.Speak(text);
+            Commit(IslandKernel.Speak(Frame, IslandSpeak.Preview(text, 48), spoken));
+            return spoken;
+        }
+
+        public string TakeDrop(IEnumerable<string> paths)
+        {
+            ShowFiles(paths);
+            if (Frame.Count == 0)
+                return "";
+            if (!Frame.ActsOnDrop)
+                return Frame.Note;
+            if (Frame.Context.Kind != IslandKind.Speak)
+                return ProcessFiles();
+            try
+            {
+                var text = File.ReadAllText(Frame.Files[0]);
+                if (text.Length > 256 * 1024)
+                    text = text.Substring(0, 256 * 1024);
+                return SpeakNow(text);
+            }
+            catch
+            {
+                Commit(IslandKernel.Noted(Frame, "speak:0", Frame.Line));
+                return "speak:0";
+            }
+        }
+
+        public string ExportPhoto()
+        {
+            return ProcessFiles();
+        }
+
+        public void SetBench(bool open)
+        {
+            if (Frame.Bench == open)
+                return;
+            Commit(IslandKernel.Bench(Frame, open));
+        }
+
+        public void Pose(IslandEdge edge, int slideY)
+        {
+            Commit(IslandKernel.Pose(Frame, edge, slideY));
         }
 
         public void Reveal()
         {
-            Visible = true;
-            WriteCard();
-            Changed?.Invoke();
+            Commit(IslandKernel.Reveal(Frame, true));
         }
 
         public void Dismiss()
         {
-            _files.Clear();
-            LastNote = "";
-            Mode = IslandMode.Idle;
-            Visible = false;
-            Context = IslandOffers.Read(_files);
-            WriteCard();
-            Changed?.Invoke();
+            IslandSpeak.Stop();
+            IslandPhoto.Current.Clear();
+            Commit(IslandKernel.Dismiss(Frame));
         }
 
         public void PickOuterEdge(IslandRect[] screens, int pointerX)
         {
-            Edge = IslandLayout.NearerOuter(screens, pointerX);
+            Pose(IslandLayout.NearerOuter(screens, pointerX), Frame.SlideY);
+        }
+
+        static IReadOnlyList<string> AsList(IEnumerable<string> paths)
+        {
+            if (paths == null)
+                return Array.Empty<string>();
+            if (paths is IReadOnlyList<string> list)
+                return list;
+            return new List<string>(paths);
         }
 
         public IslandPlacement ShownPlacement(IslandRect[] screens, int px, int py)
         {
-            return IslandLayout.Dock(screens, px, py, Edge, Span,
-                IslandMetrics.Width, IslandMetrics.Height, IslandMetrics.TopMargin);
+            return ShownPlacement(screens, px, py, IslandMetrics.Width);
+        }
+
+        public IslandPlacement ShownPlacement(IslandRect[] screens, int px, int py, int width)
+        {
+            var dock = IslandLayout.Dock(screens, px, py, Edge, Span,
+                width, IslandMetrics.Height, IslandMetrics.TopMargin);
+            if (SlideY == int.MinValue)
+                return dock;
+            return new IslandPlacement(dock.X,
+                IslandLayout.ClampY(dock.Bound, SlideY, IslandMetrics.Height, IslandMetrics.TopMargin),
+                dock.Edge, dock.Bound);
         }
 
         public IslandPlacement HiddenPlacement(IslandRect[] screens, int px, int py)
@@ -200,48 +284,48 @@ namespace Vex.Island
             switch (parts[0].ToUpperInvariant())
             {
                 case "QUIT":
+                    IslandSpeak.Stop();
                     ShouldQuit = true;
                     break;
                 case "SHOW":
-                    Visible = true;
+                    Reveal();
                     break;
                 case "HIDE":
-                    Visible = false;
+                    Commit(IslandKernel.Reveal(Frame, false));
                     break;
                 case "TOGGLE":
-                    Visible = !Visible;
+                    Commit(IslandKernel.Reveal(Frame, !Frame.Visible));
                     break;
                 case "EDGE":
                     if (parts.Length > 1 && TryParseEdge(parts[1], out var edge))
-                        Edge = edge;
+                        Pose(edge, Frame.SlideY);
                     break;
                 case "SPAN":
                     if (parts.Length > 1 && TryParseSpan(parts[1], out var span))
-                        Span = span;
+                        Commit(IslandKernel.WithSpan(Frame, span));
                     break;
                 case "IDLE":
-                    _files.Clear();
-                    TouchFiles();
-                    Visible = false;
+                    Dismiss();
                     break;
                 case "ADD":
-                    for (var i = 1; i < parts.Length; i++)
-                    {
-                        var path = IslandPaths.DecodeFileToken(parts[i]);
-                        if (path.Length > 0 && !_files.Contains(path))
-                            _files.Add(path);
-                    }
-                    TouchFiles();
-                    break;
-                case "FILES":
-                    _files.Clear();
+                    var add = new List<string>();
                     for (var i = 1; i < parts.Length; i++)
                     {
                         var path = IslandPaths.DecodeFileToken(parts[i]);
                         if (path.Length > 0)
-                            _files.Add(path);
+                            add.Add(path);
                     }
-                    TouchFiles();
+                    AddFiles(add);
+                    break;
+                case "FILES":
+                    var files = new List<string>();
+                    for (var i = 1; i < parts.Length; i++)
+                    {
+                        var path = IslandPaths.DecodeFileToken(parts[i]);
+                        if (path.Length > 0)
+                            files.Add(path);
+                    }
+                    ShowFiles(files);
                     break;
                 case "PROCESS":
                     ProcessFiles();
@@ -265,19 +349,18 @@ namespace Vex.Island
             {
                 if (string.IsNullOrEmpty(Id))
                     return;
-                var offer = IslandOffers.Resolve(_files);
                 var dir = RegistryDir();
                 Directory.CreateDirectory(dir);
                 File.WriteAllText(Path.Combine(dir, Id),
                     "id=" + Id + "\n" +
                     "pid=" + System.Diagnostics.Process.GetCurrentProcess().Id + "\n" +
                     "port=" + Port + "\n" +
-                    "files=" + _files.Count + "\n" +
-                    "kind=" + Context.Kind + "\n" +
-                    "offer=" + (offer != null ? offer.Id : "") + "\n" +
-                    "note=" + LastNote + "\n" +
-                    "edge=" + Edge + "\n" +
-                    "visible=" + (Visible ? "1" : "0") + "\n");
+                    "files=" + Frame.Count + "\n" +
+                    "kind=" + Frame.Context.Kind + "\n" +
+                    "offer=" + Frame.OfferId + "\n" +
+                    "note=" + Frame.Note + "\n" +
+                    "edge=" + Frame.Edge + "\n" +
+                    "visible=" + (Frame.Visible ? "1" : "0") + "\n");
             }
             catch
             {
@@ -340,8 +423,6 @@ namespace Vex.Island
             }
         }
 
-        // ponytail: Process/Note/Context run on the IPC thread. Offers must
-        // stay free of Unity objects; marshal onto Pump if you need Texture2D.
         bool TryReply(string line, out string reply)
         {
             var parts = Split(line);
@@ -354,9 +435,21 @@ namespace Vex.Island
             switch (parts[0].ToUpperInvariant())
             {
                 case "PROCESS":
-                    LastNote = IslandOffers.Process(_files);
-                    WriteCard();
-                    reply = LastNote;
+                    reply = ProcessFiles();
+                    return true;
+                case "SPEAK":
+                    var spoken = parts.Length > 1
+                        ? string.Join(" ", parts, 1, parts.Length - 1)
+                        : IslandSpeak.Selection();
+                    reply = SpeakNow(spoken);
+                    return true;
+                case "STOP":
+                    IslandSpeak.Stop();
+                    if (Frame.Mode == IslandMode.Speak)
+                        Commit(IslandKernel.Noted(IslandKernel.Reveal(Frame, false), "stop", Frame.Line));
+                    else
+                        Commit(IslandKernel.Noted(Frame, "stop", Frame.Line));
+                    reply = "stop";
                     return true;
                 case "NOTE":
                     reply = string.IsNullOrEmpty(LastNote) ? "none" : LastNote;

@@ -9,6 +9,7 @@ namespace Vex.Island
         Files,
         Image,
         Text,
+        Speak,
         Audio,
         Video,
         Sheet,
@@ -92,6 +93,7 @@ namespace Vex.Island
             {
                 case IslandKind.Image: return "image";
                 case IslandKind.Text: return "text";
+                case IslandKind.Speak: return "speak";
                 case IslandKind.Audio: return "audio";
                 case IslandKind.Video: return "video";
                 case IslandKind.Sheet: return "sheet";

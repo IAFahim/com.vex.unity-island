@@ -21,7 +21,7 @@ namespace Vex.Island.Editor
             PlayerSettings.productName = "Island";
             PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
             PlayerSettings.defaultIsNativeResolution = false;
-            PlayerSettings.defaultScreenWidth = IslandWindow.Width;
+            PlayerSettings.defaultScreenWidth = IslandMetrics.OpenWidth;
             PlayerSettings.defaultScreenHeight = IslandWindow.Height;
             PlayerSettings.resizableWindow = false;
             PlayerSettings.runInBackground = true;
@@ -69,7 +69,7 @@ namespace Vex.Island.Editor
 
             settings.themeStyleSheet = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(ThemePath);
             settings.scaleMode = PanelScaleMode.ConstantPixelSize;
-            settings.referenceResolution = new Vector2Int(IslandWindow.Width, IslandWindow.Height);
+            settings.referenceResolution = new Vector2Int(IslandMetrics.OpenWidth, IslandWindow.Height);
             settings.clearColor = true;
             settings.colorClearValue = Color.clear;
             settings.clearDepthStencil = true;

@@ -85,6 +85,9 @@ static int g_have;
 static int g_hot_x, g_hot_y;
 static int g_dragging;
 static unsigned long g_pid;
+static int g_geom, g_mx, g_my, g_mw, g_mh;
+static int g_shape_on;
+static int g_ov_have, g_ov_x, g_ov_y, g_ov_w, g_ov_h;
 
 static int IgnoreX(Display *d, XErrorEvent *e)
 {
@@ -254,10 +257,22 @@ int Island_Apply(int pid, int x, int y, int w, int h, int flags)
         SendState(d, win, "_NET_WM_STATE_SKIP_PAGER", 1);
     }
 
-    XMoveResizeWindow(d, win, x, y, (unsigned)w, (unsigned)h);
-    /* Invisible until Snap(true) applies the capsule. No raise. */
-    XShapeCombineRectangles(d, win, ShapeBounding, 0, 0, NULL, 0, ShapeSet, Unsorted);
-    XShapeCombineRectangles(d, win, ShapeInput, 0, 0, NULL, 0, ShapeSet, Unsorted);
+    if (!g_geom || g_mx != x || g_my != y || g_mw != w || g_mh != h)
+    {
+        XMoveResizeWindow(d, win, x, y, (unsigned)w, (unsigned)h);
+        g_mx = x;
+        g_my = y;
+        g_mw = w;
+        g_mh = h;
+        g_geom = 1;
+    }
+    /* First apply only: stay shapeless so boot does not flash a bar.
+       Later applies must not clear a live capsule — that is one black frame. */
+    if (!g_shape_on)
+    {
+        XShapeCombineRectangles(d, win, ShapeBounding, 0, 0, NULL, 0, ShapeSet, Unsorted);
+        XShapeCombineRectangles(d, win, ShapeInput, 0, 0, NULL, 0, ShapeSet, Unsorted);
+    }
     XFlush(d);
     return 1;
 }
@@ -266,7 +281,12 @@ int Island_Move(int x, int y)
 {
     if (!g_have || !Dpy())
         return 0;
+    if (g_geom && g_mx == x && g_my == y)
+        return 1;
     XMoveWindow(g_dpy, g_win, x, y);
+    g_mx = x;
+    g_my = y;
+    g_geom = 1;
     XFlush(g_dpy);
     return 1;
 }
@@ -275,8 +295,17 @@ int Island_SetVisible(int visible)
 {
     if (!g_have || !Dpy())
         return 0;
+    XWindowAttributes wa;
+    if (XGetWindowAttributes(g_dpy, g_win, &wa))
+    {
+        int mapped = wa.map_state == IsViewable;
+        if (visible && mapped)
+            return 1; /* already up — XMapRaised flickers and steals focus */
+        if (!visible && !mapped)
+            return 1;
+    }
     if (visible)
-        XMapRaised(g_dpy, g_win);
+        XMapWindow(g_dpy, g_win);
     else
         XUnmapWindow(g_dpy, g_win);
     XFlush(g_dpy);
@@ -291,6 +320,7 @@ int Island_SetShape(const int *xywh, int count)
     {
         XShapeCombineRectangles(g_dpy, g_win, ShapeBounding, 0, 0, NULL, 0, ShapeSet, Unsorted);
         XShapeCombineRectangles(g_dpy, g_win, ShapeInput, 0, 0, NULL, 0, ShapeSet, Unsorted);
+        g_shape_on = 0;
         XFlush(g_dpy);
         return 1;
     }
@@ -307,6 +337,7 @@ int Island_SetShape(const int *xywh, int count)
     XShapeCombineRectangles(g_dpy, g_win, ShapeBounding, 0, 0, rects, count, ShapeSet, Unsorted);
     XShapeCombineRectangles(g_dpy, g_win, ShapeInput, 0, 0, rects, count, ShapeSet, Unsorted);
     free(rects);
+    g_shape_on = 1;
     XFlush(g_dpy);
     return 1;
 }
@@ -664,8 +695,11 @@ int Island_Overlay(int x, int y, int w, int h)
             g_drop = 0;
             XFlush(d);
         }
+        g_ov_have = 0;
         return 1;
     }
+    if (g_ov_have && g_ov_x == x && g_ov_y == y && g_ov_w == w && g_ov_h == h && g_drop)
+        return 1;
     Window root = DefaultRootWindow(d);
     if (!g_drop)
     {
@@ -673,12 +707,15 @@ int Island_Overlay(int x, int y, int w, int h)
         if (!g_drop)
             return 0;
         Dlog("overlay create 0x%lx %dx%d+%d+%d", (unsigned long)g_drop, w, h, x, y);
+        XMapWindow(d, g_drop);
     }
     else
         XMoveResizeWindow(d, g_drop, x, y, (unsigned)w, (unsigned)h);
-    XMapRaised(d, g_drop);
-    if (g_win)
-        XSetInputFocus(d, g_win, RevertToParent, CurrentTime);
+    g_ov_x = x;
+    g_ov_y = y;
+    g_ov_w = w;
+    g_ov_h = h;
+    g_ov_have = 1;
     XFlush(d);
     return 1;
 }
